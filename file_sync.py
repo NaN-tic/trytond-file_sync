@@ -293,6 +293,8 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
     "Last synchronized state for one resource in one tag."
     __name__ = 'file.sync.entry'
 
+    _file_sync_ignore_patterns = {'.file-sync-*'}
+
     tag = fields.Many2One(
         'brainbow.tag', "Tag", required=True, ondelete='CASCADE')
     document = fields.Many2One(
@@ -331,29 +333,32 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
         return self.document or self.attachment
 
     @classmethod
-    def synchronize(cls, roots=None, required=False):
+    def get_synchronizer(cls, required=False):
         from .sync import Synchronizer
-        Synchronizer(required=required).synchronize(roots)
+        return Synchronizer(
+            required=required,
+            ignore_patterns=cls._file_sync_ignore_patterns)
+
+    @classmethod
+    def synchronize(cls, roots=None, required=False):
+        cls.get_synchronizer(required=required).synchronize(roots)
 
     @classmethod
     def synchronize_records(cls, records, deletion=False):
-        from .sync import Synchronizer
-        Synchronizer().synchronize_records(records, deletion=deletion)
+        cls.get_synchronizer().synchronize_records(
+            records, deletion=deletion)
 
     @classmethod
     def synchronize_path(cls, path):
-        from .sync import Synchronizer
-        Synchronizer(required=True).synchronize_path(path)
+        cls.get_synchronizer(required=True).synchronize_path(path)
 
     @classmethod
     def move_tags(cls, old_paths):
-        from .sync import Synchronizer
-        Synchronizer().move_tags(old_paths)
+        cls.get_synchronizer().move_tags(old_paths)
 
     @classmethod
     def remove_tag_directories(cls, old_paths):
-        from .sync import Synchronizer
-        Synchronizer().remove_tag_directories(old_paths)
+        cls.get_synchronizer().remove_tag_directories(old_paths)
 
 
 class TagAttachment(ModelSQL):
