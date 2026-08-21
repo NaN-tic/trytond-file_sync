@@ -277,6 +277,60 @@ class TestBidirectionalSync(unittest.TestCase):
             self.assertEqual(self.run_file_sync_tasks(config), 1)
             self.assertEqual(attachment_path.read_bytes(), b'original')
 
+            text_base = b'Title\nCommon\nFooter\n'
+            text_attachment = Attachment(
+                name='notes.txt', type='data', data=text_base,
+                resource=project)
+            text_attachment.tags.append(Tag(project.id))
+            text_attachment.save()
+            text_path = (
+                Path(directory) / 'Shared' / 'Projects' / 'notes.txt')
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
+            self.assertEqual(text_path.read_bytes(), text_base)
+            text_attachment_id = text_attachment.id
+            erp_text = b'ERP title\nCommon\nFooter\n'
+            filesystem_text = b'Title\nCommon\nFilesystem footer\n'
+            merged_text = b'ERP title\nCommon\nFilesystem footer\n'
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                ServerAttachment = Pool(config.database_name).get(
+                    'ir.attachment')
+                with Transaction().set_context(file_sync_skip=True):
+                    ServerAttachment.write(
+                        [ServerAttachment(text_attachment_id)],
+                        {'data': erp_text})
+                transaction.commit()
+            text_path.write_bytes(filesystem_text)
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                Entry = Pool(config.database_name).get('file.sync.entry')
+                Entry.synchronize_path(str(text_path))
+                transaction.commit()
+            merged_attachment, = Attachment.find([
+                    ('name', '=', 'notes.txt'),
+                    ])
+            self.assertNotEqual(merged_attachment.id, text_attachment_id)
+            self.assertEqual(bytes(merged_attachment.data), merged_text)
+            self.assertEqual(text_path.read_bytes(), merged_text)
+            self.assertEqual(merged_attachment.resource.id, project.id)
+            with config.set_context(active_test=False):
+                text_versions = Attachment.find([
+                        ('name', '=', 'notes.txt'),
+                        ('active', '=', False),
+                        ('replaced_by', '=', merged_attachment.id),
+                        ])
+                self.assertEqual(len(text_versions), 2)
+                self.assertEqual(
+                    {bytes(version.data) for version in text_versions},
+                    {erp_text, filesystem_text})
+            self.assertFalse(list(text_path.parent.glob(
+                        'notes.conflict-resolve-*.txt')))
+            self.assertFalse(Notification.find([
+                        ('label', '=', 'File synchronization conflict'),
+                        ]))
+
             attachment_id = attachment.id
             attachment_path.write_bytes(b'overwritten on the filesystem')
             with Transaction().start(
@@ -402,6 +456,58 @@ class TestBidirectionalSync(unittest.TestCase):
             self.assertEqual([tag.id for tag in attachment.tags], [archive.id])
             self.assertEqual(attachment.resource.id, archive.id)
             self.assertEqual(moved_path.read_bytes(), b'newer ERP attachment')
+
+            document.text = 'Title\nCommon\nFooter\n'
+            document.save()
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
+            erp_document_text = 'ERP title\nCommon\nFooter\n'
+            filesystem_document_text = (
+                'Title\nCommon\nFilesystem footer\n')
+            merged_document_text = (
+                'ERP title\nCommon\nFilesystem footer\n')
+            notifications_before_merge = len(Notification.find([
+                        ('label', '=', 'File synchronization conflict'),
+                        ]))
+            document_id = document.id
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                ServerDocument = Pool(config.database_name).get(
+                    'brainbow.document')
+                with Transaction().set_context(file_sync_skip=True):
+                    ServerDocument.write(
+                        [ServerDocument(document_id)],
+                        {'text': erp_document_text})
+                transaction.commit()
+            document_path.write_text(
+                filesystem_document_text, encoding='utf-8')
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                Entry = Pool(config.database_name).get('file.sync.entry')
+                Entry.synchronize_path(str(document_path))
+                transaction.commit()
+            document, = Document.find([('name', '=', 'Guide')])
+            self.assertNotEqual(document.id, document_id)
+            self.assertEqual(document.text, merged_document_text)
+            self.assertEqual(
+                document_path.read_text(encoding='utf-8'),
+                merged_document_text)
+            with config.set_context(active_test=False):
+                document_versions = Document.find([
+                        ('name', '=', 'Guide'),
+                        ('active', '=', False),
+                        ('replaced_by', '=', document.id),
+                        ])
+                self.assertEqual(len(document_versions), 2)
+                self.assertEqual(
+                    {version.text for version in document_versions},
+                    {erp_document_text, filesystem_document_text})
+            self.assertFalse(list(document_path.parent.glob(
+                        'Guide.conflict-resolve-*.md')))
+            self.assertEqual(len(Notification.find([
+                        ('label', '=', 'File synchronization conflict'),
+                        ])), notifications_before_merge)
 
             with Transaction().start(
                     config.database_name, config.user,

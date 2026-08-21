@@ -301,6 +301,7 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
         'ir.attachment', "Attachment", ondelete='CASCADE')
     path = fields.Char("Relative Path", required=True)
     digest = fields.Char("SHA-256", required=True)
+    merge_base = fields.Binary("Merge Base")
     size = BigInteger("Size", required=True)
     mtime_ns = BigInteger("Modification Time", required=True)
 
