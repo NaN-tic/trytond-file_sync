@@ -1,0 +1,6 @@
+include README
+include tryton.cfg
+include trytond-file-sync.py
+include *.xml
+include view/*.xml
+include locale/*.po

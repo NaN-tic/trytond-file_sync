@@ -1,0 +1,75 @@
+#
+msgid ""
+msgstr "Content-Type: text/plain; charset=utf-8\n"
+
+msgctxt "field:brainbow.document,replaced_by:"
+msgid "Replaced By"
+msgstr "Reemplaçat per"
+
+msgctxt "field:brainbow.tag,attachments:"
+msgid "Attachments"
+msgstr "Adjunts"
+
+msgctxt "field:brainbow.tag,file_sync_path:"
+msgid "Synchronized Path"
+msgstr "Ruta sincronitzada"
+
+msgctxt "field:brainbow.tag,read_only_groups:"
+msgid "Read-only Groups"
+msgstr "Grups de només lectura"
+
+msgctxt "field:brainbow.tag,read_only_users:"
+msgid "Read-only Users"
+msgstr "Usuaris de només lectura"
+
+msgctxt "field:brainbow.tag,read_write_groups:"
+msgid "Read-write Groups"
+msgstr "Grups de lectura i escriptura"
+
+msgctxt "field:brainbow.tag,read_write_users:"
+msgid "Read-write Users"
+msgstr "Usuaris de lectura i escriptura"
+
+msgctxt "field:brainbow.tag,sync:"
+msgid "Synchronize"
+msgstr "Sincronitza"
+
+msgctxt "field:ir.attachment,replaced_by:"
+msgid "Replaced By"
+msgstr "Reemplaçat per"
+
+msgctxt "field:ir.attachment,tags:"
+msgid "Tags"
+msgstr "Etiquetes"
+
+msgctxt "model:ir.model.button,string:button_synchronize_files"
+msgid "Synchronize Files"
+msgstr "Sincronitza els fitxers"
+
+msgctxt "model:ir.message,text:msg_conflict_description"
+msgid "The older version was renamed at \"%(path)s\". Resolve the conflict and remove the unwanted version."
+msgstr "La versió més antiga s'ha reanomenat a \"%(path)s\". Resoleu el conflicte i suprimiu la versió no desitjada."
+
+msgctxt "model:ir.message,text:msg_conflict_label"
+msgid "File synchronization conflict"
+msgstr "Conflicte de sincronització de fitxers"
+
+msgctxt "model:ir.message,text:msg_invalid_filename"
+msgid "\"%(name)s\" is not a safe file or directory name."
+msgstr "\"%(name)s\" no és un nom de fitxer o directori segur."
+
+msgctxt "model:ir.message,text:msg_markdown_utf8"
+msgid "The Markdown file \"%(path)s\" is not valid UTF-8."
+msgstr "El fitxer Markdown \"%(path)s\" no és UTF-8 vàlid."
+
+msgctxt "model:ir.message,text:msg_path_required"
+msgid "The [file_sync] path setting is required."
+msgstr "Cal configurar el paràmetre path de [file_sync]."
+
+msgctxt "view:brainbow.tag:"
+msgid "File Access"
+msgstr "Accés als fitxers"
+
+msgctxt "view:brainbow.tag:"
+msgid "Synchronize Files"
+msgstr "Sincronitza els fitxers"

@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<tryton>
+    <data grouped="1">
+        <record model="ir.message" id="msg_path_required">
+            <field name="text">The [file_sync] path setting is required.</field>
+        </record>
+        <record model="ir.message" id="msg_path_outside_root">
+            <field name="text">The path "%(path)s" is outside the configured synchronization directory.</field>
+        </record>
+        <record model="ir.message" id="msg_tag_outside_root">
+            <field name="text">The tag is outside the synchronized root.</field>
+        </record>
+        <record model="ir.message" id="msg_symlink_path">
+            <field name="text">The synchronization path "%(path)s" contains a symbolic link.</field>
+        </record>
+        <record model="ir.message" id="msg_invalid_filename">
+            <field name="text">"%(name)s" is not a safe file or directory name.</field>
+        </record>
+        <record model="ir.message" id="msg_markdown_utf8">
+            <field name="text">The Markdown file "%(path)s" is not valid UTF-8.</field>
+        </record>
+        <record model="ir.message" id="msg_conflict_label">
+            <field name="text">File synchronization conflict</field>
+        </record>
+        <record model="ir.message" id="msg_conflict_description">
+            <field name="text">The older version was renamed at "%(path)s". Resolve the conflict and remove the unwanted version.</field>
+        </record>
+        <record model="ir.message" id="msg_entry_single_resource">
+            <field name="text">A synchronization entry must reference exactly one document or attachment.</field>
+        </record>
+        <record model="ir.message" id="msg_entry_document_unique">
+            <field name="text">A document can have only one synchronization entry per tag.</field>
+        </record>
+        <record model="ir.message" id="msg_entry_attachment_unique">
+            <field name="text">An attachment can have only one synchronization entry per tag.</field>
+        </record>
+        <record model="ir.message" id="msg_tag_attachment_unique">
+            <field name="text">An attachment can be linked to a tag only once.</field>
+        </record>
+        <record model="ir.message" id="msg_tag_group_unique">
+            <field name="text">A group can be linked to a tag only once for this access level.</field>
+        </record>
+        <record model="ir.message" id="msg_tag_user_unique">
+            <field name="text">A user can be linked to a tag only once for this access level.</field>
+        </record>
+    </data>
+</tryton>

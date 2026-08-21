@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<data>
+    <xpath expr="/tree/field[@name='name']" position="after">
+        <field name="sync" optional="1"/>
+    </xpath>
+</data>

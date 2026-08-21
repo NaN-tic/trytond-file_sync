@@ -1,0 +1,36 @@
+File Sync
+=========
+
+The module synchronizes Brainbow tag trees with a filesystem directory.
+Configure the base directory in the Tryton server configuration::
+
+    [file_sync]
+    path = /srv/tryton/files
+
+Root tags marked ``Synchronize`` become directories below this path.
+Brainbow documents are UTF-8 Markdown files and tagged attachments are binary
+files.  Synchronization metadata uses SHA-256 digests to detect independent
+changes and preserve both versions when a conflict occurs.
+
+Document and attachment changes are processed by Tryton's default queue.
+Enable workers on every Tryton server that creates these tasks::
+
+    [queue]
+    worker = True
+
+Run the worker only on a server that has access to ``[file_sync] path``::
+
+    trytond-worker -c trytond.conf -d database
+
+``trytond-file-sync.py`` does not consume this queue.  It only watches changes
+made on the filesystem, so both processes are required for bidirectional
+synchronization when ``[queue] worker`` is enabled.
+
+The executable ``trytond-file-sync.py`` watches the path recursively with
+Linux inotify.  It is available directly in the module source directory and
+is also installed as an executable by ``setup.py``.  It accepts the standard
+Tryton daemon options and requires exactly one database.  With ``-vv``, it
+logs every filesystem creation, modification or deletion that it synchronizes
+and the resulting ERP/filesystem operations::
+
+    trytond-file-sync.py -vv -c trytond.conf -d database
