@@ -2,6 +2,7 @@
 # PYTHON_ARGCOMPLETE_OK
 import logging
 import os
+import queue
 import sys
 import time
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = commandline.get_parser_daemon()
     parser.description = (
-        'Watch [file_sync] path with inotify and synchronize Tryton files.')
+        'Watch [file_sync] path with watchdog and synchronize Tryton files.')
     parser.add_argument(
         '--debounce', type=float, default=0.25,
         help='seconds used to coalesce filesystem events (default: 0.25)')
@@ -37,9 +38,8 @@ def main():
     from trytond.pool import Pool
     from trytond.transaction import Transaction
 
-    from trytond.modules.file_sync.inotify import (
-        IN_CREATE, IN_MOVED_TO, InotifyWatcher)
     from trytond.modules.file_sync.sync import Synchronizer
+    from trytond.modules.file_sync.watcher import create_observer
 
     database_name = options.database_names[0]
     path = os.path.realpath(os.path.expanduser(configured_path))
@@ -50,7 +50,10 @@ def main():
             pool.init()
         os.makedirs(path, exist_ok=True)
         logger.info('watching %s for database %s', path, database_name)
-        with InotifyWatcher(path) as watcher:
+        events = queue.Queue()
+        observer = create_observer(
+            path, events, timeout=max(options.debounce, 0.05))
+        try:
             with Transaction().start(database_name, 0) as transaction:
                 Synchronizer(required=True).synchronize()
                 transaction.commit()
@@ -58,13 +61,25 @@ def main():
             last_event = None
             try:
                 while True:
-                    events = watcher.read(
-                        timeout=max(options.debounce, 0.05))
-                    if events:
+                    received = []
+                    try:
+                        received.append(events.get(
+                                timeout=max(options.debounce, 0.05)))
+                    except queue.Empty:
+                        pass
+                    while True:
+                        try:
+                            received.append(events.get_nowait())
+                        except queue.Empty:
+                            break
+                    if received:
                         last_event = time.monotonic()
-                        for event in events:
-                            pending[event.path] = (
-                                pending.get(event.path, 0) | event.mask)
+                        for changed_path, operation in received:
+                            if (operation == 'modification'
+                                    and pending.get(changed_path)
+                                    == 'creation'):
+                                continue
+                            pending[changed_path] = operation
                     if (not pending or last_event is None
                             or time.monotonic() - last_event
                             < options.debounce):
@@ -77,13 +92,9 @@ def main():
                         with Transaction().start(
                                 database_name, 0) as transaction:
                             synchronizer = Synchronizer(required=True)
-                            for changed_path, mask in paths:
+                            for changed_path, operation in paths:
                                 if not os.path.exists(changed_path):
                                     operation = 'deletion'
-                                elif mask & (IN_CREATE | IN_MOVED_TO):
-                                    operation = 'creation'
-                                else:
-                                    operation = 'modification'
                                 logger.info(
                                     'synchronizing filesystem %s: %s',
                                     operation, changed_path)
@@ -94,6 +105,9 @@ def main():
                             'failed to synchronize filesystem events')
             except (KeyboardInterrupt, SystemExit):
                 pass
+        finally:
+            observer.stop()
+            observer.join()
 
 
 if __name__ == '__main__':
