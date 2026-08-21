@@ -27,10 +27,15 @@ made on the filesystem, so both processes are required for bidirectional
 synchronization when ``[queue] worker`` is enabled.
 
 The executable ``trytond-file-sync.py`` watches the path recursively with
-Linux inotify.  It is available directly in the module source directory and
-is also installed as an executable by ``setup.py``.  It accepts the standard
-Tryton daemon options and requires exactly one database.  With ``-vv``, it
-logs every filesystem creation, modification or deletion that it synchronizes
-and the resulting ERP/filesystem operations::
+``watchdog``, using the native filesystem observer (inotify on Linux).  It is
+available directly in the module source directory and is also installed as an
+executable by ``setup.py``.  It accepts the standard Tryton daemon options and
+requires exactly one database.  With ``-vv``, it logs every filesystem
+creation, modification or deletion that it synchronizes and the resulting
+ERP/filesystem operations::
 
     trytond-file-sync.py -vv -c trytond.conf -d database
+
+If the native observer can not be initialized because the process or system
+has exhausted its file descriptors or inotify watches, the process logs the
+error and switches to watchdog's polling observer with a 30-second interval.

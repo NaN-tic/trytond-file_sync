@@ -1,8 +1,11 @@
+import errno
 import os
+from queue import Empty, Queue
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from proteus import Model
 import trytond.config as tryton_config
@@ -11,8 +14,10 @@ from trytond.pyson import Bool, Eval
 from trytond.tests.test_tryton import drop_db
 from trytond.tests.tools import activate_modules
 from trytond.transaction import Transaction
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
-from trytond.modules.file_sync.inotify import InotifyWatcher
+from trytond.modules.file_sync.watcher import create_observer
 
 
 class TestBidirectionalSync(unittest.TestCase):
@@ -120,11 +125,28 @@ class TestBidirectionalSync(unittest.TestCase):
                 imported_attachment.resource.__class__.__name__,
                 'brainbow.tag')
 
-            probe_path = initial_directory / 'inotify-probe.bin'
-            with InotifyWatcher(directory) as watcher:
+            probe_path = initial_directory / 'watchdog-probe.bin'
+            events = Queue()
+            with patch.object(
+                    Observer, 'start',
+                    side_effect=OSError(errno.EMFILE, 'Too many open files')), \
+                    patch(
+                        'trytond.modules.file_sync.watcher.POLL_INTERVAL',
+                        0.05):
+                observer = create_observer(directory, events, timeout=0.05)
+            try:
+                self.assertIsInstance(observer, PollingObserver)
                 probe_path.write_bytes(b'probe')
-                events = watcher.read(timeout=1)
-            self.assertIn(str(probe_path), {event.path for event in events})
+                received = []
+                while (str(probe_path), 'creation') not in received:
+                    try:
+                        received.append(events.get(timeout=1))
+                    except Empty:
+                        break
+                self.assertIn((str(probe_path), 'creation'), received)
+            finally:
+                observer.stop()
+                observer.join()
             probe_path.unlink()
 
             imported_tag.active = False
