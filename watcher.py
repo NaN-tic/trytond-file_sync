@@ -21,26 +21,31 @@ EVENT_FILTER = [
 
 class FileSyncEventHandler(FileSystemEventHandler):
 
-    def __init__(self, events):
+    def __init__(self, events, ignore=None):
         super().__init__()
         self.events = events
+        self.ignore = ignore
+
+    def _put(self, path, operation):
+        if not self.ignore or not self.ignore(path):
+            self.events.put((path, operation))
 
     def on_created(self, event):
-        self.events.put((event.src_path, 'creation'))
+        self._put(event.src_path, 'creation')
 
     def on_modified(self, event):
-        self.events.put((event.src_path, 'modification'))
+        self._put(event.src_path, 'modification')
 
     def on_deleted(self, event):
-        self.events.put((event.src_path, 'deletion'))
+        self._put(event.src_path, 'deletion')
 
     def on_moved(self, event):
-        self.events.put((event.src_path, 'deletion'))
-        self.events.put((event.dest_path, 'creation'))
+        self._put(event.src_path, 'deletion')
+        self._put(event.dest_path, 'creation')
 
 
-def create_observer(path, events, timeout):
-    handler = FileSyncEventHandler(events)
+def create_observer(path, events, timeout, ignore=None):
+    handler = FileSyncEventHandler(events, ignore=ignore)
     observer = Observer(timeout=timeout)
     observer.schedule(
         handler, path, recursive=True, event_filter=EVENT_FILTER)

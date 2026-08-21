@@ -17,6 +17,7 @@ from trytond.transaction import Transaction
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
+from trytond.modules.file_sync.sync import Synchronizer
 from trytond.modules.file_sync.watcher import create_observer
 
 
@@ -133,9 +134,17 @@ class TestBidirectionalSync(unittest.TestCase):
                     patch(
                         'trytond.modules.file_sync.watcher.POLL_INTERVAL',
                         0.05):
-                observer = create_observer(directory, events, timeout=0.05)
+                observer = create_observer(
+                    directory, events, timeout=0.05,
+                    ignore=Synchronizer(required=True).is_ignored_path)
             try:
                 self.assertIsInstance(observer, PollingObserver)
+                syncthing_directory = (
+                    initial_directory / '.stfolder')
+                syncthing_directory.mkdir()
+                syncthing_file = (
+                    syncthing_directory / 'syncthing-folder-test.txt')
+                syncthing_file.write_text('Syncthing marker', encoding='utf-8')
                 probe_path.write_bytes(b'probe')
                 received = []
                 while (str(probe_path), 'creation') not in received:
@@ -144,10 +153,25 @@ class TestBidirectionalSync(unittest.TestCase):
                     except Empty:
                         break
                 self.assertIn((str(probe_path), 'creation'), received)
+                self.assertFalse(any(
+                        '.stfolder' in Path(path).parts
+                        for path, _ in received))
             finally:
                 observer.stop()
                 observer.join()
             probe_path.unlink()
+
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                synchronizer = Synchronizer(required=True)
+                synchronizer.synchronize_path(str(syncthing_directory))
+                synchronizer.synchronize_path(str(syncthing_file))
+                transaction.commit()
+            self.assertFalse(Tag.find([('name', '=', '.stfolder')]))
+            self.assertFalse(Attachment.find([
+                        ('name', '=', 'syncthing-folder-test.txt'),
+                        ]))
 
             imported_tag.active = False
             imported_tag.save()

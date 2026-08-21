@@ -190,6 +190,8 @@ class Synchronizer:
     def synchronize_path(self, path):
         if not self.base_path:
             return
+        if self.is_ignored_path(path):
+            return
         path = os.path.realpath(os.path.abspath(path))
         if os.path.commonpath([self.base_path, path]) != self.base_path:
             raise UserError(gettext('file_sync.msg_path_outside_root',
@@ -240,6 +242,13 @@ class Synchronizer:
                 ('parent', 'child_of', [root.id]),
                 ('active', '=', True),
                 ])
+        ignored_tags = sorted(
+            [tag for tag in descendants if self._ignore_name(tag.name)],
+            key=lambda tag: len(self._parents(tag)))
+        for tag in ignored_tags:
+            if tag.active:
+                self._deactivate_tag_tree(tag)
+        descendants = [tag for tag in descendants if tag.active]
         tags = [root] + [tag for tag in descendants if tag != root]
         tags = sorted(tags, key=lambda tag: len(self._tag_components(root, tag)))
         for tag in tags:
@@ -972,6 +981,19 @@ class Synchronizer:
         return (name in IGNORED_NAMES
             or name.startswith('.file-sync-')
             or name.startswith('.syncthing.'))
+
+    def is_ignored_path(self, path):
+        if not self.base_path:
+            return False
+        try:
+            relative = os.path.relpath(
+                os.path.abspath(path), self.base_path)
+        except ValueError:
+            return False
+        if relative == '..' or relative.startswith('..' + os.sep):
+            return False
+        return any(self._ignore_name(component)
+            for component in Path(relative).parts)
 
     @staticmethod
     def _safe_component(name):

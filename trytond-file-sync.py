@@ -51,11 +51,13 @@ def main():
         os.makedirs(path, exist_ok=True)
         logger.info('watching %s for database %s', path, database_name)
         events = queue.Queue()
+        synchronizer = Synchronizer(required=True)
         observer = create_observer(
-            path, events, timeout=max(options.debounce, 0.05))
+            path, events, timeout=max(options.debounce, 0.05),
+            ignore=synchronizer.is_ignored_path)
         try:
             with Transaction().start(database_name, 0) as transaction:
-                Synchronizer(required=True).synchronize()
+                synchronizer.synchronize()
                 transaction.commit()
             pending = {}
             last_event = None

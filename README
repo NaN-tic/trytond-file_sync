@@ -39,3 +39,5 @@ ERP/filesystem operations::
 If the native observer can not be initialized because the process or system
 has exhausted its file descriptors or inotify watches, the process logs the
 error and switches to watchdog's polling observer with a 30-second interval.
+Syncthing metadata such as ``.stfolder``, ``.stignore`` and ``.stversions`` is
+excluded from both filesystem events and full synchronization.
