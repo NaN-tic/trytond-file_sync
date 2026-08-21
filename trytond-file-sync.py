@@ -38,7 +38,6 @@ def main():
     from trytond.pool import Pool
     from trytond.transaction import Transaction
 
-    from trytond.modules.file_sync.sync import Synchronizer
     from trytond.modules.file_sync.watcher import create_observer
 
     database_name = options.database_names[0]
@@ -48,10 +47,11 @@ def main():
         pool = Pool(database_name)
         with Transaction().start(database_name, 0, readonly=True):
             pool.init()
+            SyncEntry = pool.get('file.sync.entry')
+            synchronizer = SyncEntry.get_synchronizer(required=True)
         os.makedirs(path, exist_ok=True)
         logger.info('watching %s for database %s', path, database_name)
         events = queue.Queue()
-        synchronizer = Synchronizer(required=True)
         observer = create_observer(
             path, events, timeout=max(options.debounce, 0.05),
             ignore=synchronizer.is_ignored_path)
@@ -93,7 +93,6 @@ def main():
                     try:
                         with Transaction().start(
                                 database_name, 0) as transaction:
-                            synchronizer = Synchronizer(required=True)
                             for changed_path, operation in paths:
                                 if not os.path.exists(changed_path):
                                     operation = 'deletion'

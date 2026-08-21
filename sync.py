@@ -1,4 +1,5 @@
 import datetime
+import fnmatch
 import hashlib
 import json
 import logging
@@ -15,12 +16,6 @@ from trytond.i18n import gettext
 from trytond.pool import Pool
 from trytond.transaction import Transaction, inactive_records
 
-
-IGNORED_NAMES = {
-    '.stfolder',
-    '.stignore',
-    '.stversions',
-    }
 TEXT_EXTENSIONS = {
     '.asm', '.bash', '.c', '.cc', '.cfg', '.cmake', '.conf', '.cpp',
     '.cs', '.css', '.csv', '.cxx', '.dart', '.editorconfig', '.env',
@@ -116,13 +111,14 @@ class FileSystemDataManager:
 
 class Synchronizer:
 
-    def __init__(self, required=False):
+    def __init__(self, required=False, ignore_patterns=None):
         configured_path = config.get('file_sync', 'path')
         if configured_path:
             configured_path = os.path.expanduser(configured_path)
             self.base_path = os.path.realpath(configured_path)
         else:
             self.base_path = None
+        self.ignore_patterns = set(ignore_patterns or ())
         if required and not self.base_path:
             raise UserError(gettext('file_sync.msg_path_required'))
 
@@ -1105,11 +1101,9 @@ class Synchronizer:
     def _digest(data):
         return hashlib.sha256(data).hexdigest()
 
-    @staticmethod
-    def _ignore_name(name):
-        return (name in IGNORED_NAMES
-            or name.startswith('.file-sync-')
-            or name.startswith('.syncthing.'))
+    def _ignore_name(self, name):
+        return any(fnmatch.fnmatchcase(name, pattern)
+            for pattern in self.ignore_patterns)
 
     def is_ignored_path(self, path):
         if not self.base_path:
@@ -1124,12 +1118,10 @@ class Synchronizer:
         return any(self._ignore_name(component)
             for component in Path(relative).parts)
 
-    @staticmethod
-    def _safe_component(name):
+    def _safe_component(self, name):
         if (not name or name in {'.', '..'} or '\x00' in name
-                or '/' in name or '\\' in name or name in IGNORED_NAMES
-                or name.startswith('.file-sync-')
-                or name.startswith('.syncthing.')):
+                or '/' in name or '\\' in name
+                or self._ignore_name(name)):
             raise UserError(gettext(
                     'file_sync.msg_invalid_filename', name=name))
         return name

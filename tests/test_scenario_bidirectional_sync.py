@@ -17,7 +17,6 @@ from trytond.transaction import Transaction
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
-from trytond.modules.file_sync.sync import Synchronizer
 from trytond.modules.file_sync.watcher import create_observer
 
 
@@ -128,6 +127,10 @@ class TestBidirectionalSync(unittest.TestCase):
 
             probe_path = initial_directory / 'watchdog-probe.bin'
             events = Queue()
+            SyncEntry = Pool(config.database_name).get('file.sync.entry')
+            synchronizer = SyncEntry.get_synchronizer(required=True)
+            self.assertFalse(synchronizer.is_ignored_path(
+                    initial_directory / '.stfolder'))
             with patch.object(
                     Observer, 'start',
                     side_effect=OSError(errno.EMFILE, 'Too many open files')), \
@@ -136,15 +139,14 @@ class TestBidirectionalSync(unittest.TestCase):
                         0.05):
                 observer = create_observer(
                     directory, events, timeout=0.05,
-                    ignore=Synchronizer(required=True).is_ignored_path)
+                    ignore=synchronizer.is_ignored_path)
             try:
                 self.assertIsInstance(observer, PollingObserver)
-                syncthing_directory = (
-                    initial_directory / '.stfolder')
-                syncthing_directory.mkdir()
-                syncthing_file = (
-                    syncthing_directory / 'syncthing-folder-test.txt')
-                syncthing_file.write_text('Syncthing marker', encoding='utf-8')
+                ignored_directory = (
+                    initial_directory / '.file-sync-test')
+                ignored_directory.mkdir()
+                ignored_file = ignored_directory / 'ignored.txt'
+                ignored_file.write_text('Ignored marker', encoding='utf-8')
                 probe_path.write_bytes(b'probe')
                 received = []
                 while (str(probe_path), 'creation') not in received:
@@ -154,7 +156,7 @@ class TestBidirectionalSync(unittest.TestCase):
                         break
                 self.assertIn((str(probe_path), 'creation'), received)
                 self.assertFalse(any(
-                        '.stfolder' in Path(path).parts
+                        '.file-sync-test' in Path(path).parts
                         for path, _ in received))
             finally:
                 observer.stop()
@@ -164,13 +166,12 @@ class TestBidirectionalSync(unittest.TestCase):
             with Transaction().start(
                     config.database_name, config.user,
                     context=config.context) as transaction:
-                synchronizer = Synchronizer(required=True)
-                synchronizer.synchronize_path(str(syncthing_directory))
-                synchronizer.synchronize_path(str(syncthing_file))
+                synchronizer.synchronize_path(str(ignored_directory))
+                synchronizer.synchronize_path(str(ignored_file))
                 transaction.commit()
-            self.assertFalse(Tag.find([('name', '=', '.stfolder')]))
+            self.assertFalse(Tag.find([('name', '=', '.file-sync-test')]))
             self.assertFalse(Attachment.find([
-                        ('name', '=', 'syncthing-folder-test.txt'),
+                        ('name', '=', 'ignored.txt'),
                         ]))
 
             imported_tag.active = False
