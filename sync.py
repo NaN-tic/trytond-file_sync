@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 import trytond.config as config
+from merge3 import Merge3
 from trytond.exceptions import UserError
 from trytond.i18n import gettext
 from trytond.pool import Pool
@@ -19,6 +20,22 @@ IGNORED_NAMES = {
     '.stfolder',
     '.stignore',
     '.stversions',
+    }
+TEXT_EXTENSIONS = {
+    '.asm', '.bash', '.c', '.cc', '.cfg', '.cmake', '.conf', '.cpp',
+    '.cs', '.css', '.csv', '.cxx', '.dart', '.editorconfig', '.env',
+    '.erl', '.ex', '.exs', '.fish', '.fs', '.fsx', '.go', '.gql',
+    '.gradle', '.graphql', '.groovy', '.h', '.hpp', '.hrl', '.htm',
+    '.html', '.ini', '.java', '.js', '.json', '.jsonl', '.jsx', '.kt',
+    '.kts', '.less', '.lua', '.md', '.markdown', '.php', '.pl', '.pm',
+    '.properties', '.proto', '.ps1', '.py', '.pyi', '.r', '.rb', '.rs',
+    '.rst', '.s', '.sass', '.scala', '.scss', '.sh', '.sql', '.svelte',
+    '.swift', '.tex', '.toml', '.ts', '.tsx', '.tsv', '.txt', '.vb',
+    '.vim', '.vue', '.xml', '.yaml', '.yml', '.zsh',
+    }
+TEXT_FILENAMES = {
+    '.editorconfig', '.env', '.gitattributes', '.gitignore', 'dockerfile',
+    'gemfile', 'jenkinsfile', 'makefile', 'procfile',
     }
 
 logger = logging.getLogger(__name__)
@@ -363,7 +380,8 @@ class Synchronizer:
                     resource.__class__.write([resource], values)
                 entry.__class__.write([entry], {'tag': tag.id})
             self._rename_resource_from_path(resource, path)
-            self._save_entry(entry, relative, digest, size, mtime_ns)
+            self._save_entry(
+                entry, relative, digest, size, mtime_ns, data)
             logger.info(
                 "moved ERP resource %s,%s to filesystem file %s",
                 resource.__name__, resource.id, path)
@@ -371,7 +389,7 @@ class Synchronizer:
 
         resource = self._create_resource(tag, path, data)
         entry = self._record_entry(
-            tag, resource, relative, digest, size, mtime_ns)
+            tag, resource, relative, digest, size, mtime_ns, data)
         self._link_inactive_versions(tag, resource)
         return entry
 
@@ -386,7 +404,8 @@ class Synchronizer:
         if not entry:
             if db_digest == fs_digest:
                 self._record_entry(
-                    tag, resource, relative, fs_digest, fs_size, fs_mtime_ns)
+                    tag, resource, relative, fs_digest, fs_size, fs_mtime_ns,
+                    fs_data)
             else:
                 self._resolve_conflict(
                     tag, path, resource, None, fs_data, fs_digest, fs_size,
@@ -397,7 +416,7 @@ class Synchronizer:
         fs_changed = fs_digest != entry.digest
         if db_digest == fs_digest:
             self._save_entry(
-                entry, relative, fs_digest, fs_size, fs_mtime_ns)
+                entry, relative, fs_digest, fs_size, fs_mtime_ns, fs_data)
         elif db_changed and fs_changed:
             self._resolve_conflict(
                 tag, path, resource, entry, fs_data, fs_digest, fs_size,
@@ -405,11 +424,11 @@ class Synchronizer:
         elif fs_changed:
             self._replace_resource_from_file(tag, resource, path, fs_data)
             self._save_entry(
-                entry, relative, fs_digest, fs_size, fs_mtime_ns)
+                entry, relative, fs_digest, fs_size, fs_mtime_ns, fs_data)
         else:
             mtime_ns = self._write_file(path, db_data)
             self._save_entry(
-                entry, relative, db_digest, len(db_data), mtime_ns)
+                entry, relative, db_digest, len(db_data), mtime_ns, db_data)
 
     def _sync_db_resource(self, tag, resource, missing_is_delete):
         data = self._resource_data(resource)
@@ -457,10 +476,11 @@ class Synchronizer:
 
         mtime_ns = self._write_file(path, data)
         if entry:
-            self._save_entry(entry, relative, digest, len(data), mtime_ns)
+            self._save_entry(
+                entry, relative, digest, len(data), mtime_ns, data)
         else:
             self._record_entry(
-                tag, resource, relative, digest, len(data), mtime_ns)
+                tag, resource, relative, digest, len(data), mtime_ns, data)
 
     def _propagate_missing_entry(self, entry):
         resource = entry.resource
@@ -484,7 +504,7 @@ class Synchronizer:
             self._delete_entry(entry)
             self._record_entry(
                 entry.tag, replacement, self._relative(conflict_path),
-                fs_digest, fs_size, fs_mtime_ns)
+                fs_digest, fs_size, fs_mtime_ns, fs_data)
             self._notify_conflict(entry.tag, self._relative(conflict_path))
             return
         if file_state:
@@ -497,8 +517,12 @@ class Synchronizer:
             fs_mtime_ns):
         db_data = self._resource_data(resource)
         db_digest = self._digest(db_data)
-        db_mtime_ns = self._resource_mtime_ns(resource)
         canonical_relative = self._relative(path)
+        if (entry
+                and self._merge_conflict(
+                    tag, path, resource, entry, db_data, fs_data)):
+            return
+        db_mtime_ns = self._resource_mtime_ns(resource)
 
         if fs_mtime_ns <= db_mtime_ns:
             conflict_path = self._conflict_path(path, 'filesystem')
@@ -509,16 +533,16 @@ class Synchronizer:
             conflict_mtime = os.stat(conflict_path).st_mtime_ns
             self._record_entry(
                 tag, older, self._relative(conflict_path), fs_digest,
-                fs_size, conflict_mtime)
+                fs_size, conflict_mtime, fs_data)
             canonical_mtime = self._write_file(path, db_data)
             if entry:
                 self._save_entry(
                     entry, canonical_relative, db_digest, len(db_data),
-                    canonical_mtime)
+                    canonical_mtime, db_data)
             else:
                 self._record_entry(
                     tag, resource, canonical_relative, db_digest,
-                    len(db_data), canonical_mtime)
+                    len(db_data), canonical_mtime, db_data)
         else:
             conflict_path = self._conflict_path(path, 'erp')
             conflict_mtime = self._write_file(conflict_path, db_data)
@@ -530,15 +554,93 @@ class Synchronizer:
             if entry:
                 self._save_entry(
                     entry, self._relative(conflict_path), db_digest,
-                    len(db_data), conflict_mtime)
+                    len(db_data), conflict_mtime, db_data)
             else:
                 self._record_entry(
                     tag, resource, self._relative(conflict_path), db_digest,
-                    len(db_data), conflict_mtime)
+                    len(db_data), conflict_mtime, db_data)
             self._record_entry(
                 tag, replacement, canonical_relative, fs_digest, fs_size,
-                fs_mtime_ns)
+                fs_mtime_ns, fs_data)
         self._notify_conflict(tag, canonical_relative)
+
+    def _merge_conflict(
+            self, tag, path, resource, entry, db_data, fs_data):
+        base_data = entry.merge_base
+        if base_data is None:
+            return False
+        base_data = bytes(base_data)
+        if self._digest(base_data) != entry.digest:
+            return False
+        merged_data = self._merge_text_data(
+            path, base_data, db_data, fs_data)
+        if merged_data is None:
+            return False
+
+        replacement, filesystem_version = self._create_merged_versions(
+            tag, path, resource, merged_data, fs_data)
+        merged_mtime_ns = self._write_file(path, merged_data)
+        self._save_entry(
+            entry, self._relative(path), self._digest(merged_data),
+            len(merged_data), merged_mtime_ns, merged_data)
+        logger.info(
+            "merged ERP resource %s,%s and filesystem version %s,%s "
+            "as %s,%s in %s",
+            resource.__name__, resource.id,
+            filesystem_version.__name__, filesystem_version.id,
+            replacement.__name__, replacement.id, path)
+        return True
+
+    def _create_merged_versions(
+            self, tag, path, resource, merged_data, fs_data):
+        entries = self._entries_for_resource(resource)
+        entry_field = ('document'
+            if resource.__name__ == 'brainbow.document' else 'attachment')
+        replacement_defaults = self._resource_copy_defaults(
+            tag, resource, path, merged_data)
+        with Transaction().set_context(file_sync_skip=True):
+            replacement, = resource.__class__.copy(
+                [resource], default=replacement_defaults)
+            filesystem_defaults = self._resource_copy_defaults(
+                tag, resource, path, fs_data)
+            filesystem_defaults.update({
+                    'active': False,
+                    'replaced_by': replacement.id,
+                    })
+            filesystem_version, = resource.__class__.copy(
+                [resource], default=filesystem_defaults)
+            if entries:
+                entries[0].__class__.write(
+                    entries, {entry_field: replacement.id})
+            resource.__class__.write([resource], {
+                    'active': False,
+                    'replaced_by': replacement.id,
+                    })
+        return replacement, filesystem_version
+
+    def _merge_text_data(self, path, base_data, db_data, fs_data):
+        if any(self._merge_base_data(path, data) is None
+                for data in (base_data, db_data, fs_data)):
+            return
+        base_lines = base_data.splitlines(keepends=True)
+        db_lines = db_data.splitlines(keepends=True)
+        fs_lines = fs_data.splitlines(keepends=True)
+        merger = Merge3(base_lines, db_lines, fs_lines)
+        regions = merger.reprocess_merge_regions(merger.merge_regions())
+        merged = []
+        for region in regions:
+            kind = region[0]
+            if kind == 'conflict':
+                return
+            start, end = region[1:3]
+            if kind == 'unchanged':
+                lines = base_lines
+            elif kind in {'a', 'same'}:
+                lines = db_lines
+            else:
+                lines = fs_lines
+            merged.extend(lines[start:end])
+        return b''.join(merged)
 
     def _create_resource(self, tag, path, data):
         pool = Pool()
@@ -574,24 +676,8 @@ class Synchronizer:
         return resource
 
     def _replace_resource_from_file(self, tag, resource, path, data):
-        defaults = {
-            'active': True,
-            'name': self._name_from_path(resource, path),
-            'replaced_by': None,
-            }
-        if resource.__name__ == 'brainbow.document':
-            try:
-                defaults['text'] = data.decode('utf-8-sig')
-            except UnicodeDecodeError as exception:
-                raise UserError(gettext(
-                        'file_sync.msg_markdown_utf8', path=path)) from exception
-        else:
-            defaults.update({
-                    'data': data,
-                    'file_id': None,
-                    'resource': str(tag),
-                    'type': 'data',
-                    })
+        defaults = self._resource_copy_defaults(
+            tag, resource, path, data)
         entries = self._entries_for_resource(resource)
         entry_field = ('document'
             if resource.__name__ == 'brainbow.document' else 'attachment')
@@ -610,6 +696,28 @@ class Synchronizer:
             resource.__name__, resource.id,
             replacement.__name__, replacement.id, path)
         return replacement
+
+    def _resource_copy_defaults(self, tag, resource, path, data):
+        defaults = {
+            'active': True,
+            'name': self._name_from_path(resource, path),
+            'replaced_by': None,
+            }
+        if resource.__name__ == 'brainbow.document':
+            try:
+                defaults['text'] = data.decode('utf-8-sig')
+            except UnicodeDecodeError as exception:
+                raise UserError(gettext(
+                        'file_sync.msg_markdown_utf8',
+                        path=path)) from exception
+        else:
+            defaults.update({
+                    'data': data,
+                    'file_id': None,
+                    'resource': str(tag),
+                    'type': 'data',
+                    })
+        return defaults
 
     def _rename_resource_from_path(self, resource, path):
         name = self._name_from_path(resource, path)
@@ -802,12 +910,13 @@ class Synchronizer:
         return entries[0] if entries else None
 
     def _record_entry(
-            self, tag, resource, relative, digest, size, mtime_ns):
+            self, tag, resource, relative, digest, size, mtime_ns, data):
         Entry = Pool().get('file.sync.entry')
         values = {
             'tag': tag.id,
             'path': relative,
             'digest': digest,
+            'merge_base': self._merge_base_data(relative, data),
             'size': size,
             'mtime_ns': mtime_ns,
             }
@@ -818,18 +927,38 @@ class Synchronizer:
         entry, = Entry.create([values])
         return entry
 
-    def _save_entry(self, entry, relative, digest, size, mtime_ns):
+    def _save_entry(
+            self, entry, relative, digest, size, mtime_ns, data):
         values = {}
         for name, value in {
                 'path': relative,
                 'digest': digest,
+                'merge_base': self._merge_base_data(relative, data),
                 'size': size,
                 'mtime_ns': mtime_ns,
                 }.items():
-            if getattr(entry, name) != value:
+            current = getattr(entry, name)
+            if name == 'merge_base' and current is not None:
+                current = bytes(current)
+            if current != value:
                 values[name] = value
         if values:
             entry.__class__.write([entry], values)
+
+    @staticmethod
+    def _merge_base_data(path, data):
+        filename = os.path.basename(path).lower()
+        extension = os.path.splitext(filename)[1]
+        if (extension not in TEXT_EXTENSIONS
+                and filename not in TEXT_FILENAMES):
+            return
+        if b'\0' in data:
+            return
+        try:
+            data.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return
+        return data
 
     def _delete_entry(self, entry):
         entry.__class__.delete([entry])

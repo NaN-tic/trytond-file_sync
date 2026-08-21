@@ -12,6 +12,12 @@ Brainbow documents are UTF-8 Markdown files and tagged attachments are binary
 files.  Synchronization metadata uses SHA-256 digests to detect independent
 changes and preserve both versions when a conflict occurs.
 
+When both sides modify a Markdown, plain-text or source-code file, the module
+first attempts a three-way merge from the last synchronized content.  A clean
+merge creates a new active ERP version and preserves both inputs as inactive
+versions linked to it.  Overlapping changes keep the normal conflict-file and
+notification behavior.
+
 Document and attachment changes are processed by Tryton's default queue.
 Enable workers on every Tryton server that creates these tasks::
 

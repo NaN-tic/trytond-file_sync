@@ -35,6 +35,7 @@ def get_require_version(name):
 
 
 requires = [get_require_version('trytond')]
+requires.append('merge3 >= 0.0.16')
 requires.append('watchdog >= 6.0')
 for dependency in info.get('depends', []):
     if not re.match(r'(ir|res)(\W|$)', dependency):
