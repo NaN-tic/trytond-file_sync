@@ -65,8 +65,29 @@ class TestAsyncQueue(unittest.TestCase):
             language, = Lang.find([('code', '=', 'en')])
             root = Tag(name='Shared', sync=True)
             root.save()
+            root_path = Path(directory) / 'Shared'
+            self.assertFalse(root_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertTrue(root_path.exists())
+
+            button_path = root_path / 'button-probe.txt'
+            button_path.write_text('Button import', encoding='utf-8')
+            root.click('synchronize_files')
+            self.assertFalse(Attachment.find([
+                        ('name', '=', 'button-probe.txt'),
+                        ]))
+            run_task('file.sync.configuration', 'synchronize')
+            button_attachment, = Attachment.find([
+                    ('name', '=', 'button-probe.txt'),
+                    ])
+            self.assertEqual(bytes(button_attachment.data), b'Button import')
+
             project = Tag(name='Projects', parent=root)
             project.save()
+            project_path = root_path / 'Projects'
+            self.assertFalse(project_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertTrue(project_path.exists())
 
             document = Document(
                 name='Guide', text='Initial document', language=language)
@@ -165,6 +186,32 @@ class TestAsyncQueue(unittest.TestCase):
                 self.assertFalse(Attachment.find([
                             ('id', '=', attachment.id),
                             ]))
+
+            project.name = 'Work'
+            project.save()
+            work_path = root_path / 'Work'
+            self.assertTrue(project_path.exists())
+            self.assertFalse(work_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertFalse(project_path.exists())
+            self.assertTrue(work_path.exists())
+
+            project.active = False
+            project.save()
+            self.assertTrue(work_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertFalse(work_path.exists())
+
+            disposable = Tag(name='Disposable', parent=root)
+            disposable.save()
+            disposable_path = root_path / 'Disposable'
+            self.assertFalse(disposable_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertTrue(disposable_path.exists())
+            Tag.delete([disposable])
+            self.assertTrue(disposable_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertFalse(disposable_path.exists())
 
         if old_path is not None:
             tryton_config.set('file_sync', 'path', old_path)

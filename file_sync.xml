@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <tryton>
     <data>
+        <record model="file.sync.configuration" id="configuration"/>
+
         <record model="ir.ui.view" id="view_tag_form">
             <field name="model">brainbow.tag</field>
             <field name="inherit" ref="brainbow.view_tag_form"/>
@@ -40,6 +42,13 @@
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
             <field name="perm_delete" eval="True"/>
+        </record>
+        <record model="ir.model.access" id="access_configuration">
+            <field name="model">file.sync.configuration</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_delete" eval="False"/>
         </record>
     </data>
 </tryton>

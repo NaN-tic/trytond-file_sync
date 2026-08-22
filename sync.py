@@ -183,11 +183,11 @@ class Synchronizer:
                 os.replace(source, conflict)
                 self._notify_conflict(tag, self._relative(conflict))
 
-    def remove_tag_directories(self, old_paths):
+    def remove_tag_directories(self, paths):
         if not self.base_path:
             return
         relative_paths = sorted(
-            {path for path in old_paths.values() if path},
+            {path for path in paths if path},
             key=lambda path: len(Path(path).parts))
         for relative in relative_paths:
             path = self._validated_path(
