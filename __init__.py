@@ -9,6 +9,7 @@ def register():
         file_sync.Document,
         file_sync.Attachment,
         file_sync.SyncEntry,
+        file_sync.Configuration,
         file_sync.TagAttachment,
         file_sync.TagReadOnlyGroup,
         file_sync.TagReadWriteGroup,

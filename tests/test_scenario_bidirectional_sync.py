@@ -43,9 +43,11 @@ class TestBidirectionalSync(unittest.TestCase):
                         ], order=[('id', 'ASC')])
                 task = next((task for task in tasks
                         if task.data['model'] in {
-                            'brainbow.document', 'ir.attachment'}
+                            'brainbow.document', 'file.sync.configuration',
+                            'ir.attachment'}
                         and task.data['method'] in {
-                            'synchronize_files', 'delete_inactive'}), None)
+                            'delete_inactive', 'synchronize',
+                            'synchronize_files'}), None)
                 if not task:
                     transaction.commit()
                     return count
@@ -96,6 +98,8 @@ class TestBidirectionalSync(unittest.TestCase):
             root = Tag(name='Shared', sync=True, view=True)
             root.read_write_users.append(User(config.user))
             root.save()
+            self.assertFalse(Document.find([('name', '=', 'root-file')]))
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
             root.reload()
             self.assertTrue(root.sync)
             self.assertFalse(root.view)
@@ -176,9 +180,13 @@ class TestBidirectionalSync(unittest.TestCase):
 
             imported_tag.active = False
             imported_tag.save()
+            self.assertTrue(initial_directory.exists())
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
             self.assertFalse(initial_directory.exists())
             imported_tag.active = True
             imported_tag.save()
+            self.assertFalse(initial_directory.exists())
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
             self.assertEqual(
                 (initial_directory / 'preexisting.md').read_text(
                     encoding='utf-8'),
@@ -189,6 +197,10 @@ class TestBidirectionalSync(unittest.TestCase):
 
             project = Tag(name='Projects', parent=root, sync=True)
             project.save()
+            project_path = Path(directory) / 'Shared' / 'Projects'
+            self.assertFalse(project_path.exists())
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
+            self.assertTrue(project_path.exists())
             project.reload()
             self.assertFalse(project.sync)
             document = Document(
@@ -365,6 +377,9 @@ class TestBidirectionalSync(unittest.TestCase):
             old_project_path = Path(directory) / 'Shared' / 'Projects'
             work_path = Path(directory) / 'Shared' / 'Work'
             self.assertEqual(renamed_project.id, project_identity)
+            self.assertTrue(old_project_path.exists())
+            self.assertFalse(work_path.exists())
+            self.assertEqual(self.run_file_sync_tasks(config), 1)
             self.assertFalse(old_project_path.exists())
             document_path = work_path / 'Guide.md'
             attachment_path = work_path / 'specification.bin'

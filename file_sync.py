@@ -1,9 +1,11 @@
 from trytond.exceptions import UserError
 from trytond.i18n import gettext
-from trytond.model import DeactivableMixin, ModelSQL, ModelView, Unique, fields
+from trytond.model import (
+    DeactivableMixin, ModelSingleton, ModelSQL, ModelView, Unique, fields)
 from trytond.pool import Pool, PoolMeta
 from trytond.pyson import Bool, Eval
-from trytond.transaction import Transaction
+from trytond.transaction import (
+    Transaction, inactive_records, without_check_access)
 
 
 class BigInteger(fields.Integer):
@@ -91,9 +93,9 @@ class Tag(metaclass=PoolMeta):
         tags = super().create(vlist)
         if (tags
                 and not Transaction().context.get('file_sync_skip')):
-            SyncEntry = Pool().get('file.sync.entry')
             roots = {tag.synchronized_root() for tag in tags}
-            SyncEntry.synchronize([root for root in roots if root])
+            Pool().get('file.sync.configuration').queue_synchronize(
+                roots=[root for root in roots if root])
         return tags
 
     @classmethod
@@ -109,17 +111,19 @@ class Tag(metaclass=PoolMeta):
         watched_fields = {'name', 'parent', 'sync', 'active'}
         if not any(watched_fields & set(values) for _, values in pairs):
             return
-        SyncEntry = Pool().get('file.sync.entry')
+        moves = None
         if any({'name', 'parent'} & set(values) for _, values in pairs):
-            SyncEntry.move_tags(old_paths)
+            moves = old_paths
         deactivated = {
             tag: old_paths[tag] for tag in tags if not tag.active}
         if deactivated:
-            SyncEntry.remove_tag_directories(deactivated)
             with Transaction().set_context(file_sync_skip=True):
                 cls.write(list(deactivated), {'file_sync_path': None})
         roots = old_roots | {tag.synchronized_root() for tag in tags}
-        SyncEntry.synchronize([root for root in roots if root])
+        Pool().get('file.sync.configuration').queue_synchronize(
+            roots=[root for root in roots if root],
+            moves=moves,
+            removals=deactivated.values())
 
     @classmethod
     def delete(cls, tags):
@@ -128,14 +132,15 @@ class Tag(metaclass=PoolMeta):
         super().delete(tags)
         if (tags
                 and not Transaction().context.get('file_sync_skip')):
-            Pool().get('file.sync.entry').remove_tag_directories(old_paths)
+            Pool().get('file.sync.configuration').queue_synchronize(
+                removals=old_paths.values())
 
     @classmethod
     @ModelView.button
     def synchronize_files(cls, tags):
-        SyncEntry = Pool().get('file.sync.entry')
         roots = {tag.synchronized_root() for tag in tags}
-        SyncEntry.synchronize([root for root in roots if root], required=True)
+        Pool().get('file.sync.configuration').queue_synchronize(
+            roots=[root for root in roots if root], required=True)
 
 
 class Document(metaclass=PoolMeta):
@@ -357,8 +362,48 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
         cls.get_synchronizer().move_tags(old_paths)
 
     @classmethod
-    def remove_tag_directories(cls, old_paths):
-        cls.get_synchronizer().remove_tag_directories(old_paths)
+    def remove_tag_directories(cls, paths):
+        cls.get_synchronizer().remove_tag_directories(paths)
+
+
+class Configuration(ModelSingleton, ModelSQL, ModelView):
+    "File Sync Configuration"
+    __name__ = 'file.sync.configuration'
+
+    @classmethod
+    def queue_synchronize(
+            cls, roots=None, moves=None, removals=None, required=False):
+        root_ids = sorted({root.id for root in roots or [] if root})
+        moves = sorted(
+            (tag.id, path) for tag, path in (moves or {}).items() if path)
+        removals = sorted({path for path in removals or [] if path})
+        if not root_ids and not moves and not removals:
+            return
+        with without_check_access():
+            configurations = cls.search([], limit=1)
+        if configurations:
+            cls.__queue__.synchronize(
+                configurations, root_ids, moves, removals, required)
+
+    @classmethod
+    def synchronize(
+            cls, configurations, root_ids, moves, removals, required):
+        pool = Pool()
+        Entry = pool.get('file.sync.entry')
+        Tag = pool.get('brainbow.tag')
+        tag_ids = set(root_ids) | {tag_id for tag_id, _ in moves}
+        with inactive_records():
+            tags = Tag.search([('id', 'in', tag_ids)]) if tag_ids else []
+        tags = {tag.id: tag for tag in tags}
+        if moves:
+            Entry.move_tags({
+                    tags[tag_id]: path for tag_id, path in moves
+                    if tag_id in tags})
+        if removals:
+            Entry.remove_tag_directories(removals)
+        roots = [tags[root_id] for root_id in root_ids if root_id in tags]
+        if roots:
+            Entry.synchronize(roots, required=required)
 
 
 class TagAttachment(ModelSQL):
