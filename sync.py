@@ -291,7 +291,8 @@ class Synchronizer:
                 if item.is_symlink():
                     continue
                 if item.is_dir(follow_symlinks=False):
-                    child_tag = self._child_tag(tag, item.name, create=True)
+                    child_tag = self._child_tag(
+                        tag, self._decode_name(item.name), create=True)
                     self._walk_directory(
                         root, child_tag, item.path, seen_tags)
                 elif item.is_file(follow_symlinks=False):
@@ -731,6 +732,7 @@ class Synchronizer:
             name = name[:-3]
         else:
             Model = Pool().get('ir.attachment')
+        name = self._decode_name(name)
         records = Model.search([
                 ('tags', '=', tag.id),
                 ('name', '=', name),
@@ -825,7 +827,8 @@ class Synchronizer:
             return
         tag = root
         for component in Path(relative).parts:
-            tag = self._child_tag(tag, component, create=create)
+            tag = self._child_tag(
+                tag, self._decode_name(component), create=create)
             if not tag:
                 return
         return tag
@@ -873,8 +876,8 @@ class Synchronizer:
     def _name_from_path(self, resource, path):
         name = os.path.basename(path)
         if resource.__name__ == 'brainbow.document' and name.lower().endswith('.md'):
-            return name[:-3]
-        return name
+            name = name[:-3]
+        return self._decode_name(name)
 
     def _resource_data(self, resource):
         if resource.__name__ == 'brainbow.document':
@@ -1120,11 +1123,24 @@ class Synchronizer:
 
     def _safe_component(self, name):
         if (not name or name in {'.', '..'} or '\x00' in name
-                or '/' in name or '\\' in name
                 or self._ignore_name(name)):
             raise UserError(gettext(
                     'file_sync.msg_invalid_filename', name=name))
-        return name
+        return self._encode_name(name)
+
+    @staticmethod
+    def _encode_name(name):
+        return (name
+            .replace('%', '%25')
+            .replace('/', '%2F')
+            .replace('\\', '%5C'))
+
+    @staticmethod
+    def _decode_name(name):
+        return (name
+            .replace('%2F', '/')
+            .replace('%5C', '\\')
+            .replace('%25', '%'))
 
     @staticmethod
     def _parents(tag):

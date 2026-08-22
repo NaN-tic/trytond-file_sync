@@ -11,6 +11,8 @@ Root tags marked ``Synchronize`` become directories below this path.
 Brainbow documents are UTF-8 Markdown files and tagged attachments are binary
 files.  Synchronization metadata uses SHA-256 digests to detect independent
 changes and preserve both versions when a conflict occurs.
+The characters ``%``, ``/`` and ``\\`` in ERP tag or resource names are
+reversibly encoded as ``%25``, ``%2F`` and ``%5C`` in filesystem names.
 
 When both sides modify a Markdown, plain-text or source-code file, the module
 first attempts a three-way merge from the last synchronized content.  A clean
