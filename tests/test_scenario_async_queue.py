@@ -89,6 +89,27 @@ class TestAsyncQueue(unittest.TestCase):
             run_task('file.sync.configuration', 'synchronize')
             self.assertTrue(project_path.exists())
 
+            encoded_tag = Tag(name='Clients/ERP 100%', parent=root)
+            encoded_tag.save()
+            encoded_tag_path = root_path / 'Clients%2FERP 100%25'
+            self.assertFalse(encoded_tag_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertTrue(encoded_tag_path.exists())
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                Entry = Pool(config.database_name).get('file.sync.entry')
+                Entry.synchronize_path(str(encoded_tag_path))
+                transaction.commit()
+            root.click('synchronize_files')
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertEqual(len(Tag.find([
+                        ('name', '=', 'Clients/ERP 100%'),
+                        ])), 1)
+            self.assertFalse(Tag.find([
+                        ('name', '=', 'Clients%2FERP 100%25'),
+                        ]))
+
             document = Document(
                 name='Guide', text='Initial document', language=language)
             document.tags.append(project)
@@ -102,6 +123,33 @@ class TestAsyncQueue(unittest.TestCase):
             self.assertEqual(
                 document_path.read_text(encoding='utf-8'),
                 'Initial document')
+
+            encoded_name = (
+                "Executar query/s al 100% de les bbdd d'un servidor")
+            encoded_document = Document(
+                name=encoded_name, text='Encoded document', language=language)
+            encoded_document.tags.append(Tag(project.id))
+            encoded_document.save()
+            encoded_path = (
+                project_path
+                / "Executar query%2Fs al 100%25 de les bbdd d'un servidor.md")
+            self.assertFalse(encoded_path.exists())
+            run_task('brainbow.document')
+            self.assertEqual(
+                encoded_path.read_text(encoding='utf-8'), 'Encoded document')
+            encoded_path.write_text(
+                'Updated from the filesystem', encoding='utf-8')
+            with Transaction().start(
+                    config.database_name, config.user,
+                    context=config.context) as transaction:
+                Entry = Pool(config.database_name).get('file.sync.entry')
+                Entry.synchronize_path(str(encoded_path))
+                transaction.commit()
+            encoded_document, = Document.find([
+                    ('name', '=', encoded_name),
+                    ])
+            self.assertEqual(
+                encoded_document.text, 'Updated from the filesystem')
 
             document.text = 'Updated document'
             document.save()
