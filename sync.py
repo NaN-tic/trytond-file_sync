@@ -125,9 +125,9 @@ class Synchronizer:
     def synchronize(self, roots=None):
         if not self.base_path:
             return
-        Tag = Pool().get('brainbow.tag')
+        Category = Pool().get('office.category')
         if roots is None:
-            roots = Tag.search([
+            roots = Category.search([
                     ('parent', '=', None),
                     ('sync', '=', True),
                     ('active', '=', True),
@@ -144,28 +144,29 @@ class Synchronizer:
             return
         for resource in records:
             entries = self._entries_for_resource(resource)
-            desired_tags = set()
+            desired_categories = set()
             if resource.active and not deletion:
-                desired_tags = {
-                    tag for tag in resource.tags
-                    if tag.active and tag.synchronized_root()
+                desired_categories = {
+                    category for category in resource.categories
+                    if category.active and category.synchronized_root()
                     }
             for entry in entries:
-                if entry.tag not in desired_tags or deletion:
+                if entry.category not in desired_categories or deletion:
                     self._remove_entry_from_erp(entry)
-            for tag in sorted(desired_tags, key=lambda tag: tag.id):
-                self._sync_db_resource(tag, resource, missing_is_delete=False)
+            for category in sorted(
+                    desired_categories, key=lambda category: category.id):
+                self._sync_db_resource(category, resource, missing_is_delete=False)
 
-    def move_tags(self, old_paths):
+    def move_categories(self, old_paths):
         if not self.base_path:
             return
-        for tag, old_relative in old_paths.items():
-            root = tag.synchronized_root()
+        for category, old_relative in old_paths.items():
+            root = category.synchronized_root()
             if not old_relative or not root:
                 continue
             source = self._validated_path(os.path.join(
                     self.base_path, old_relative))
-            target = self._tag_directory(root, tag)
+            target = self._category_directory(root, category)
             if source == target or not os.path.lexists(source):
                 continue
             if os.path.commonpath([self.base_path, source]) != self.base_path:
@@ -177,13 +178,13 @@ class Synchronizer:
                 logger.info(
                     "moved filesystem directory %s to %s", source, target)
             elif os.path.isdir(source) and os.path.isdir(target):
-                self._merge_directories(source, target, tag)
+                self._merge_directories(source, target, category)
             else:
                 conflict = self._conflict_path(target, 'erp-directory')
                 os.replace(source, conflict)
-                self._notify_conflict(tag, self._relative(conflict))
+                self._notify_conflict(category, self._relative(conflict))
 
-    def remove_tag_directories(self, paths):
+    def remove_category_directories(self, paths):
         if not self.base_path:
             return
         relative_paths = sorted(
@@ -216,16 +217,16 @@ class Synchronizer:
         if not root:
             return
         if os.path.isdir(path) and not os.path.islink(path):
-            tag = self._tag_for_directory(root, path, create=True)
-            if tag:
-                seen_tags = set()
-                self._walk_directory(root, tag, path, seen_tags)
-                self._reconcile_tag(root, tag, missing_is_delete=True)
+            category = self._category_for_directory(root, path, create=True)
+            if category:
+                seen_categories = set()
+                self._walk_directory(root, category, path, seen_categories)
+                self._reconcile_category(root, category, missing_is_delete=True)
         elif os.path.isfile(path) and not os.path.islink(path):
-            tag = self._tag_for_directory(root, os.path.dirname(path),
+            category = self._category_for_directory(root, os.path.dirname(path),
                 create=True)
-            if tag:
-                self._sync_fs_file(tag, path)
+            if category:
+                self._sync_fs_file(category, path)
         elif not os.path.exists(path):
             relative = self._relative(path)
             Entry = Pool().get('file.sync.entry')
@@ -234,52 +235,55 @@ class Synchronizer:
                 for entry in entries:
                     self._propagate_missing_entry(entry)
             else:
-                Tag = Pool().get('brainbow.tag')
-                tags = Tag.search([('file_sync_path', '=', relative)])
-                for tag in tags:
-                    if tag == root:
+                Category = Pool().get('office.category')
+                categories = Category.search([('file_sync_path', '=', relative)])
+                for category in categories:
+                    if category == root:
                         self._synchronize_root(root)
                     else:
-                        self._deactivate_tag_tree(tag)
+                        self._deactivate_category_tree(category)
 
     def _synchronize_root(self, root):
-        root_directory = self._tag_directory(root, root)
+        root_directory = self._category_directory(root, root)
         os.makedirs(root_directory, exist_ok=True)
-        self._set_tag_path(root, root_directory)
+        self._set_category_path(root, root_directory)
 
-        seen_tags = set()
-        self._walk_directory(root, root, root_directory, seen_tags)
+        seen_categories = set()
+        self._walk_directory(root, root, root_directory, seen_categories)
 
-        Tag = Pool().get('brainbow.tag')
-        descendants = Tag.search([
+        Category = Pool().get('office.category')
+        descendants = Category.search([
                 ('parent', 'child_of', [root.id]),
                 ('active', '=', True),
                 ])
-        ignored_tags = sorted(
-            [tag for tag in descendants if self._ignore_name(tag.name)],
-            key=lambda tag: len(self._parents(tag)))
-        for tag in ignored_tags:
-            if tag.active:
-                self._deactivate_tag_tree(tag)
-        descendants = [tag for tag in descendants if tag.active]
-        tags = [root] + [tag for tag in descendants if tag != root]
-        tags = sorted(tags, key=lambda tag: len(self._tag_components(root, tag)))
-        for tag in tags:
-            directory = self._tag_directory(root, tag)
+        ignored_categories = sorted(
+            [category for category in descendants if self._ignore_name(category.name)],
+            key=lambda category: len(self._parents(category)))
+        for category in ignored_categories:
+            if category.active:
+                self._deactivate_category_tree(category)
+        descendants = [category for category in descendants if category.active]
+        categories = [root] + [category for category in descendants if category != root]
+        categories = sorted(
+            categories,
+            key=lambda category: len(
+                self._category_components(root, category)))
+        for category in categories:
+            directory = self._category_directory(root, category)
             missing_is_delete = True
-            if tag.id not in seen_tags:
-                if tag.file_sync_path and tag != root:
-                    self._deactivate_tag_tree(tag)
+            if category.id not in seen_categories:
+                if category.file_sync_path and category != root:
+                    self._deactivate_category_tree(category)
                     continue
                 os.makedirs(directory, exist_ok=True)
-                self._set_tag_path(tag, directory)
+                self._set_category_path(category, directory)
                 missing_is_delete = False
-            self._reconcile_tag(
-                root, tag, missing_is_delete=missing_is_delete)
+            self._reconcile_category(
+                root, category, missing_is_delete=missing_is_delete)
 
-    def _walk_directory(self, root, tag, directory, seen_tags):
-        seen_tags.add(tag.id)
-        self._set_tag_path(tag, directory)
+    def _walk_directory(self, root, category, directory, seen_categories):
+        seen_categories.add(category.id)
+        self._set_category_path(category, directory)
         try:
             children = sorted(os.scandir(directory), key=lambda item: item.name)
         except FileNotFoundError:
@@ -291,44 +295,38 @@ class Synchronizer:
                 if item.is_symlink():
                     continue
                 if item.is_dir(follow_symlinks=False):
-                    child_tag = self._child_tag(
-                        tag, self._decode_name(item.name), create=True)
+                    child_category = self._child_category(
+                        category, self._decode_name(item.name), create=True)
                     self._walk_directory(
-                        root, child_tag, item.path, seen_tags)
+                        root, child_category, item.path, seen_categories)
                 elif item.is_file(follow_symlinks=False):
-                    self._sync_fs_file(tag, item.path)
+                    self._sync_fs_file(category, item.path)
             except FileNotFoundError:
                 continue
 
-    def _reconcile_tag(self, root, tag, missing_is_delete):
-        Document = Pool().get('brainbow.document')
+    def _reconcile_category(self, root, category, missing_is_delete):
         Attachment = Pool().get('ir.attachment')
-        documents = Document.search([
-                ('tags', '=', tag.id),
-                ('active', '=', True),
-                ])
         attachments = Attachment.search([
-                ('tags', '=', tag.id),
+                ('categories', '=', category.id),
                 ('active', '=', True),
-                ('type', '=', 'data'),
+                ('type', 'in', ['data', 'text']),
                 ])
-        resources = list(documents) + list(attachments)
-        for resource in resources:
-            if tag.synchronized_root() == root:
+        for resource in attachments:
+            if category.synchronized_root() == root:
                 self._sync_db_resource(
-                    tag, resource, missing_is_delete=missing_is_delete)
+                    category, resource, missing_is_delete=missing_is_delete)
 
-    def _sync_fs_file(self, tag, path):
+    def _sync_fs_file(self, category, path):
         file_state = self._read_file(path)
         if not file_state:
             return
         data, digest, size, mtime_ns = file_state
         relative = self._relative(path)
-        is_document = path.lower().endswith('.md')
+        is_text = path.lower().endswith('.md')
 
         Entry = Pool().get('file.sync.entry')
         path_entries = Entry.search([
-                ('tag', '=', tag.id),
+                ('category', '=', category.id),
                 ('path', '=', relative),
                 ])
         for entry in path_entries:
@@ -341,41 +339,37 @@ class Synchronizer:
                     path)
                 return
             self._sync_existing(
-                tag, path, resource, entry, data, digest, size,
+                category, path, resource, entry, data, digest, size,
                 mtime_ns)
             return
 
-        resource = self._find_named_resource(tag, path, is_document)
+        resource = self._find_named_resource(category, path, is_text)
         if resource:
-            entry = self._entry_for(tag, resource)
+            entry = self._entry_for(category, resource)
             self._sync_existing(
-                tag, path, resource, entry, data, digest, size, mtime_ns)
+                category, path, resource, entry, data, digest, size, mtime_ns)
             return
 
         entries = Entry.search([('digest', '=', digest)])
         for entry in entries:
             resource = entry.resource
             if (not resource or not resource.active
-                    or (resource.__name__ == 'brainbow.document')
-                    != is_document):
+                    or (resource.type == 'text') != is_text):
                 continue
-            if entry.tag.synchronized_root() != tag.synchronized_root():
+            if entry.category.synchronized_root() != category.synchronized_root():
                 continue
             if os.path.exists(self._entry_path(entry)):
                 continue
-            if entry.tag != tag:
+            if entry.category != category:
                 values = {
-                    'tags': [
-                        ('remove', [entry.tag.id]),
-                        ('add', [tag.id]),
+                    'categories': [
+                        ('remove', [entry.category.id]),
+                        ('add', [category.id]),
                         ],
                     }
-                if (resource.__name__ == 'ir.attachment'
-                        and resource.resource == entry.tag):
-                    values['resource'] = str(tag)
                 with Transaction().set_context(file_sync_skip=True):
                     resource.__class__.write([resource], values)
-                entry.__class__.write([entry], {'tag': tag.id})
+                entry.__class__.write([entry], {'category': category.id})
             self._rename_resource_from_path(resource, path)
             self._save_entry(
                 entry, relative, digest, size, mtime_ns, data)
@@ -384,14 +378,14 @@ class Synchronizer:
                 resource.__name__, resource.id, path)
             return
 
-        resource = self._create_resource(tag, path, data)
+        resource = self._create_resource(category, path, data)
         entry = self._record_entry(
-            tag, resource, relative, digest, size, mtime_ns, data)
-        self._link_inactive_versions(tag, resource)
+            category, resource, relative, digest, size, mtime_ns, data)
+        self._link_inactive_versions(category, resource)
         return entry
 
     def _sync_existing(
-            self, tag, path, resource, entry, fs_data, fs_digest, fs_size,
+            self, category, path, resource, entry, fs_data, fs_digest, fs_size,
             fs_mtime_ns):
         db_data = self._resource_data(resource)
         if db_data is None:
@@ -401,11 +395,11 @@ class Synchronizer:
         if not entry:
             if db_digest == fs_digest:
                 self._record_entry(
-                    tag, resource, relative, fs_digest, fs_size, fs_mtime_ns,
+                    category, resource, relative, fs_digest, fs_size, fs_mtime_ns,
                     fs_data)
             else:
                 self._resolve_conflict(
-                    tag, path, resource, None, fs_data, fs_digest, fs_size,
+                    category, path, resource, None, fs_data, fs_digest, fs_size,
                     fs_mtime_ns)
             return
 
@@ -416,10 +410,10 @@ class Synchronizer:
                 entry, relative, fs_digest, fs_size, fs_mtime_ns, fs_data)
         elif db_changed and fs_changed:
             self._resolve_conflict(
-                tag, path, resource, entry, fs_data, fs_digest, fs_size,
+                category, path, resource, entry, fs_data, fs_digest, fs_size,
                 fs_mtime_ns)
         elif fs_changed:
-            self._replace_resource_from_file(tag, resource, path, fs_data)
+            self._replace_resource_from_file(category, resource, path, fs_data)
             self._save_entry(
                 entry, relative, fs_digest, fs_size, fs_mtime_ns, fs_data)
         else:
@@ -427,20 +421,20 @@ class Synchronizer:
             self._save_entry(
                 entry, relative, db_digest, len(db_data), mtime_ns, db_data)
 
-    def _sync_db_resource(self, tag, resource, missing_is_delete):
+    def _sync_db_resource(self, category, resource, missing_is_delete):
         data = self._resource_data(resource)
         if data is None:
             return
-        root = tag.synchronized_root()
+        root = category.synchronized_root()
         if not root:
             return
-        directory = self._tag_directory(root, tag)
+        directory = self._category_directory(root, category)
         os.makedirs(directory, exist_ok=True)
-        self._set_tag_path(tag, directory)
+        self._set_category_path(category, directory)
         path = os.path.join(directory, self._resource_filename(resource))
         relative = self._relative(path)
         digest = self._digest(data)
-        entry = self._entry_for(tag, resource)
+        entry = self._entry_for(category, resource)
 
         if entry and entry.path != relative:
             old_path = self._entry_path(entry)
@@ -462,14 +456,14 @@ class Synchronizer:
             file_state = self._read_file(path)
             if file_state:
                 self._sync_existing(
-                    tag, path, resource, entry, *file_state)
+                    category, path, resource, entry, *file_state)
             return
 
         if entry and missing_is_delete:
             if digest == entry.digest:
                 self._propagate_missing_entry(entry)
                 return
-            self._notify_conflict(tag, relative)
+            self._notify_conflict(category, relative)
 
         mtime_ns = self._write_file(path, data)
         if entry:
@@ -477,12 +471,12 @@ class Synchronizer:
                 entry, relative, digest, len(data), mtime_ns, data)
         else:
             self._record_entry(
-                tag, resource, relative, digest, len(data), mtime_ns, data)
+                category, resource, relative, digest, len(data), mtime_ns, data)
 
     def _propagate_missing_entry(self, entry):
         resource = entry.resource
         if resource and resource.active:
-            self._remove_resource_tag(resource, entry.tag)
+            self._remove_resource_category(resource, entry.category)
         self._delete_entry(entry)
 
     def _remove_entry_from_erp(self, entry):
@@ -494,15 +488,15 @@ class Synchronizer:
             conflict_path = self._conflict_path(path, 'filesystem')
             os.replace(path, conflict_path)
             replacement = self._create_resource(
-                entry.tag, conflict_path, fs_data)
+                entry.category, conflict_path, fs_data)
             with Transaction().set_context(file_sync_skip=True):
                 resource.__class__.write(
                     [resource], {'replaced_by': replacement.id})
             self._delete_entry(entry)
             self._record_entry(
-                entry.tag, replacement, self._relative(conflict_path),
+                entry.category, replacement, self._relative(conflict_path),
                 fs_digest, fs_size, fs_mtime_ns, fs_data)
-            self._notify_conflict(entry.tag, self._relative(conflict_path))
+            self._notify_conflict(entry.category, self._relative(conflict_path))
             return
         if file_state:
             os.unlink(path)
@@ -510,26 +504,26 @@ class Synchronizer:
         self._delete_entry(entry)
 
     def _resolve_conflict(
-            self, tag, path, resource, entry, fs_data, fs_digest, fs_size,
+            self, category, path, resource, entry, fs_data, fs_digest, fs_size,
             fs_mtime_ns):
         db_data = self._resource_data(resource)
         db_digest = self._digest(db_data)
         canonical_relative = self._relative(path)
         if (entry
                 and self._merge_conflict(
-                    tag, path, resource, entry, db_data, fs_data)):
+                    category, path, resource, entry, db_data, fs_data)):
             return
         db_mtime_ns = self._resource_mtime_ns(resource)
 
         if fs_mtime_ns <= db_mtime_ns:
             conflict_path = self._conflict_path(path, 'filesystem')
             os.replace(path, conflict_path)
-            older = self._create_resource(tag, conflict_path, fs_data)
+            older = self._create_resource(category, conflict_path, fs_data)
             with Transaction().set_context(file_sync_skip=True):
                 older.__class__.write([older], {'replaced_by': resource.id})
             conflict_mtime = os.stat(conflict_path).st_mtime_ns
             self._record_entry(
-                tag, older, self._relative(conflict_path), fs_digest,
+                category, older, self._relative(conflict_path), fs_digest,
                 fs_size, conflict_mtime, fs_data)
             canonical_mtime = self._write_file(path, db_data)
             if entry:
@@ -538,13 +532,13 @@ class Synchronizer:
                     canonical_mtime, db_data)
             else:
                 self._record_entry(
-                    tag, resource, canonical_relative, db_digest,
+                    category, resource, canonical_relative, db_digest,
                     len(db_data), canonical_mtime, db_data)
         else:
             conflict_path = self._conflict_path(path, 'erp')
             conflict_mtime = self._write_file(conflict_path, db_data)
             self._rename_resource_from_path(resource, conflict_path)
-            replacement = self._create_resource(tag, path, fs_data)
+            replacement = self._create_resource(category, path, fs_data)
             with Transaction().set_context(file_sync_skip=True):
                 resource.__class__.write(
                     [resource], {'replaced_by': replacement.id})
@@ -554,15 +548,15 @@ class Synchronizer:
                     len(db_data), conflict_mtime, db_data)
             else:
                 self._record_entry(
-                    tag, resource, self._relative(conflict_path), db_digest,
+                    category, resource, self._relative(conflict_path), db_digest,
                     len(db_data), conflict_mtime, db_data)
             self._record_entry(
-                tag, replacement, canonical_relative, fs_digest, fs_size,
+                category, replacement, canonical_relative, fs_digest, fs_size,
                 fs_mtime_ns, fs_data)
-        self._notify_conflict(tag, canonical_relative)
+        self._notify_conflict(category, canonical_relative)
 
     def _merge_conflict(
-            self, tag, path, resource, entry, db_data, fs_data):
+            self, category, path, resource, entry, db_data, fs_data):
         base_data = entry.merge_base
         if base_data is None:
             return False
@@ -575,7 +569,7 @@ class Synchronizer:
             return False
 
         replacement, filesystem_version = self._create_merged_versions(
-            tag, path, resource, merged_data, fs_data)
+            category, path, resource, merged_data, fs_data)
         merged_mtime_ns = self._write_file(path, merged_data)
         self._save_entry(
             entry, self._relative(path), self._digest(merged_data),
@@ -589,17 +583,15 @@ class Synchronizer:
         return True
 
     def _create_merged_versions(
-            self, tag, path, resource, merged_data, fs_data):
+            self, category, path, resource, merged_data, fs_data):
         entries = self._entries_for_resource(resource)
-        entry_field = ('document'
-            if resource.__name__ == 'brainbow.document' else 'attachment')
         replacement_defaults = self._resource_copy_defaults(
-            tag, resource, path, merged_data)
+            category, resource, path, merged_data)
         with Transaction().set_context(file_sync_skip=True):
             replacement, = resource.__class__.copy(
                 [resource], default=replacement_defaults)
             filesystem_defaults = self._resource_copy_defaults(
-                tag, resource, path, fs_data)
+                category, resource, path, fs_data)
             filesystem_defaults.update({
                     'active': False,
                     'replaced_by': replacement.id,
@@ -608,7 +600,7 @@ class Synchronizer:
                 [resource], default=filesystem_defaults)
             if entries:
                 entries[0].__class__.write(
-                    entries, {entry_field: replacement.id})
+                    entries, {'attachment': replacement.id})
             resource.__class__.write([resource], {
                     'active': False,
                     'replaced_by': replacement.id,
@@ -639,51 +631,49 @@ class Synchronizer:
             merged.extend(lines[start:end])
         return b''.join(merged)
 
-    def _create_resource(self, tag, path, data):
-        pool = Pool()
+    def _create_resource(self, category, path, data):
         filename = os.path.basename(path)
         with Transaction().set_context(file_sync_skip=True):
+            pool = Pool()
+            Attachment = pool.get('ir.attachment')
             if filename.lower().endswith('.md'):
-                Document = pool.get('brainbow.document')
                 Lang = pool.get('ir.lang')
                 try:
-                    text = data.decode('utf-8-sig')
+                    content = data.decode('utf-8-sig')
                 except UnicodeDecodeError as exception:
                     raise UserError(gettext(
                             'file_sync.msg_markdown_utf8', path=path)) from exception
-                name = filename[:-3]
-                resource, = Document.create([{
-                            'name': name,
-                            'text': text,
+                resource, = Attachment.create([{
+                            'name': filename[:-3],
+                            'type': 'text',
+                            'content': content,
                             'language': Lang.get().id,
-                            'tags': [('add', [tag.id])],
+                            'unlinked': True,
+                            'categories': [('add', [category.id])],
                             }])
             else:
-                Attachment = pool.get('ir.attachment')
                 resource, = Attachment.create([{
                             'name': filename,
                             'type': 'data',
                             'data': data,
-                            'resource': str(tag),
-                            'tags': [('add', [tag.id])],
+                            'unlinked': True,
+                            'categories': [('add', [category.id])],
                             }])
         logger.info(
             "created ERP resource %s,%s from filesystem file %s",
             resource.__name__, resource.id, path)
         return resource
 
-    def _replace_resource_from_file(self, tag, resource, path, data):
+    def _replace_resource_from_file(self, category, resource, path, data):
         defaults = self._resource_copy_defaults(
-            tag, resource, path, data)
+            category, resource, path, data)
         entries = self._entries_for_resource(resource)
-        entry_field = ('document'
-            if resource.__name__ == 'brainbow.document' else 'attachment')
         with Transaction().set_context(file_sync_skip=True):
             replacement, = resource.__class__.copy(
                 [resource], default=defaults)
             if entries:
                 entries[0].__class__.write(
-                    entries, {entry_field: replacement.id})
+                    entries, {'attachment': replacement.id})
             resource.__class__.write([resource], {
                     'active': False,
                     'replaced_by': replacement.id,
@@ -694,15 +684,15 @@ class Synchronizer:
             replacement.__name__, replacement.id, path)
         return replacement
 
-    def _resource_copy_defaults(self, tag, resource, path, data):
+    def _resource_copy_defaults(self, category, resource, path, data):
         defaults = {
             'active': True,
             'name': self._name_from_path(resource, path),
             'replaced_by': None,
             }
-        if resource.__name__ == 'brainbow.document':
+        if resource.type == 'text':
             try:
-                defaults['text'] = data.decode('utf-8-sig')
+                defaults['content'] = data.decode('utf-8-sig')
             except UnicodeDecodeError as exception:
                 raise UserError(gettext(
                         'file_sync.msg_markdown_utf8',
@@ -711,7 +701,6 @@ class Synchronizer:
             defaults.update({
                     'data': data,
                     'file_id': None,
-                    'resource': str(tag),
                     'type': 'data',
                     })
         return defaults
@@ -725,26 +714,24 @@ class Synchronizer:
                 "renamed ERP resource %s,%s from filesystem file %s",
                 resource.__name__, resource.id, path)
 
-    def _find_named_resource(self, tag, path, is_document):
+    def _find_named_resource(self, category, path, is_text):
         name = os.path.basename(path)
-        if is_document:
-            Model = Pool().get('brainbow.document')
+        if is_text:
             name = name[:-3]
-        else:
-            Model = Pool().get('ir.attachment')
+        Model = Pool().get('ir.attachment')
         name = self._decode_name(name)
         records = Model.search([
-                ('tags', '=', tag.id),
+                ('categories', '=', category.id),
                 ('name', '=', name),
                 ('active', '=', True),
                 ], order=[('id', 'DESC')], limit=1)
         return records[0] if records else None
 
-    def _link_inactive_versions(self, tag, replacement):
+    def _link_inactive_versions(self, category, replacement):
         Model = replacement.__class__
         with inactive_records():
             versions = Model.search([
-                    ('tags', '=', tag.id),
+                    ('categories', '=', category.id),
                     ('name', '=', replacement.name),
                     ('active', '=', False),
                     ('replaced_by', '=', None),
@@ -754,69 +741,66 @@ class Synchronizer:
             with Transaction().set_context(file_sync_skip=True):
                 Model.write(versions, {'replaced_by': replacement.id})
 
-    def _remove_resource_tag(self, resource, tag):
-        other_tags = [candidate for candidate in resource.tags
-            if candidate != tag]
+    def _remove_resource_category(self, resource, category):
+        other_categories = [candidate for candidate in resource.categories
+            if candidate != category]
         with Transaction().set_context(file_sync_skip=True):
-            if other_tags:
-                values = {'tags': [('remove', [tag.id])]}
-                if (resource.__name__ == 'ir.attachment'
-                        and resource.resource == tag):
-                    values['resource'] = str(min(
-                            other_tags, key=lambda candidate: candidate.id))
+            if other_categories:
+                values = {'categories': [('remove', [category.id])]}
                 resource.__class__.write([resource], values)
                 logger.info(
-                    "removed tag %s from ERP resource %s,%s",
-                    tag.id, resource.__name__, resource.id)
+                    "removed category %s from ERP resource %s,%s",
+                    category.id, resource.__name__, resource.id)
             else:
                 resource.__class__.write([resource], {'active': False})
                 logger.info(
                     "deactivated ERP resource %s,%s",
                     resource.__name__, resource.id)
 
-    def _deactivate_tag_tree(self, tag):
-        Tag = Pool().get('brainbow.tag')
-        descendants = Tag.search([('parent', 'child_of', [tag.id])])
-        tags = [tag] + [child for child in descendants if child != tag]
-        tags = sorted(tags, key=lambda item: len(self._parents(item)),
+    def _deactivate_category_tree(self, category):
+        Category = Pool().get('office.category')
+        descendants = Category.search([('parent', 'child_of', [category.id])])
+        categories = [category] + [child for child in descendants if child != category]
+        categories = sorted(categories, key=lambda item: len(self._parents(item)),
             reverse=True)
         Entry = Pool().get('file.sync.entry')
-        entries = Entry.search([('tag', 'in', [item.id for item in tags])])
+        entries = Entry.search([('category', 'in', [item.id for item in categories])])
         for entry in entries:
             self._propagate_missing_entry(entry)
         with Transaction().set_context(file_sync_skip=True):
-            Tag.write(tags, {'active': False})
+            Category.write(categories, {'active': False})
 
-    def _child_tag(self, parent, name, create):
-        Tag = Pool().get('brainbow.tag')
-        tags = Tag.search([
+    def _child_category(self, parent, name, create):
+        Category = Pool().get('office.category')
+        categories = Category.search([
                 ('parent', '=', parent.id),
                 ('name', '=', name),
                 ], limit=1)
-        if tags:
-            return tags[0]
+        if categories:
+            return categories[0]
         with inactive_records():
-            tags = Tag.search([
+            categories = Category.search([
                     ('parent', '=', parent.id),
                     ('name', '=', name),
                     ], limit=1)
-        if tags:
+        if categories:
             with Transaction().set_context(file_sync_skip=True):
-                Tag.write(tags, {'active': True})
+                Category.write(categories, {'active': True})
             logger.info(
-                "reactivated ERP tag %s from filesystem directory", tags[0].id)
-            return tags[0]
+                "reactivated ERP category %s from filesystem directory",
+                categories[0].id)
+            return categories[0]
         if not create:
             return
         with Transaction().set_context(file_sync_skip=True):
-            tag, = Tag.create([{'name': name, 'parent': parent.id}])
+            category, = Category.create([{'name': name, 'parent': parent.id}])
         logger.info(
-            "created ERP tag %s from filesystem directory %s",
-            tag.id, name)
-        return tag
+            "created ERP category %s from filesystem directory %s",
+            category.id, name)
+        return category
 
-    def _tag_for_directory(self, root, directory, create):
-        root_directory = self._tag_directory(root, root)
+    def _category_for_directory(self, root, directory, create):
+        root_directory = self._category_directory(root, root)
         try:
             relative = os.path.relpath(directory, root_directory)
         except ValueError:
@@ -825,24 +809,24 @@ class Synchronizer:
             return root
         if relative == '..' or relative.startswith('..' + os.sep):
             return
-        tag = root
+        category = root
         for component in Path(relative).parts:
-            tag = self._child_tag(
-                tag, self._decode_name(component), create=create)
-            if not tag:
+            category = self._child_category(
+                category, self._decode_name(component), create=create)
+            if not category:
                 return
-        return tag
+        return category
 
     def _root_for_path(self, path):
-        Tag = Pool().get('brainbow.tag')
-        roots = Tag.search([
+        Category = Pool().get('office.category')
+        roots = Category.search([
                 ('parent', '=', None),
                 ('sync', '=', True),
                 ('active', '=', True),
                 ])
         matches = []
         for root in roots:
-            directory = self._tag_directory(root, root)
+            directory = self._category_directory(root, root)
             try:
                 if os.path.commonpath([directory, path]) == directory:
                     matches.append((len(directory), root))
@@ -850,38 +834,37 @@ class Synchronizer:
                 continue
         return max(matches, default=(0, None))[1]
 
-    def _tag_directory(self, root, tag):
+    def _category_directory(self, root, category):
         return self._validated_path(os.path.join(
-                self.base_path, *self._tag_components(root, tag)))
+                self.base_path, *self._category_components(root, category)))
 
-    def _tag_components(self, root, tag):
-        tags = []
-        current = tag
+    def _category_components(self, root, category):
+        categories = []
+        current = category
         while current:
-            tags.append(current)
+            categories.append(current)
             if current == root:
                 break
             current = current.parent
-        if not tags or tags[-1] != root:
-            raise UserError(gettext('file_sync.msg_tag_outside_root'))
-        return [self._safe_component(item.name) for item in reversed(tags)]
+        if not categories or categories[-1] != root:
+            raise UserError(gettext('file_sync.msg_category_outside_root'))
+        return [self._safe_component(item.name) for item in reversed(categories)]
 
     def _resource_filename(self, resource):
         name = self._safe_component(resource.name)
-        if (resource.__name__ == 'brainbow.document'
-                and not name.lower().endswith('.md')):
+        if resource.type == 'text' and not name.lower().endswith('.md'):
             name += '.md'
         return name
 
     def _name_from_path(self, resource, path):
         name = os.path.basename(path)
-        if resource.__name__ == 'brainbow.document' and name.lower().endswith('.md'):
+        if resource.type == 'text' and name.lower().endswith('.md'):
             name = name[:-3]
         return self._decode_name(name)
 
     def _resource_data(self, resource):
-        if resource.__name__ == 'brainbow.document':
-            return (resource.text or '').encode('utf-8')
+        if resource.type == 'text':
+            return (resource.content or '').encode('utf-8')
         if resource.type != 'data':
             return None
         data = resource.data
@@ -899,30 +882,25 @@ class Synchronizer:
 
     def _entries_for_resource(self, resource):
         Entry = Pool().get('file.sync.entry')
-        field = ('document' if resource.__name__ == 'brainbow.document'
-            else 'attachment')
-        return Entry.search([(field, '=', resource.id)])
+        return Entry.search([('attachment', '=', resource.id)])
 
-    def _entry_for(self, tag, resource):
+    def _entry_for(self, category, resource):
         entries = [entry for entry in self._entries_for_resource(resource)
-            if entry.tag == tag]
+            if entry.category == category]
         return entries[0] if entries else None
 
     def _record_entry(
-            self, tag, resource, relative, digest, size, mtime_ns, data):
+            self, category, resource, relative, digest, size, mtime_ns, data):
         Entry = Pool().get('file.sync.entry')
         values = {
-            'tag': tag.id,
+            'category': category.id,
             'path': relative,
             'digest': digest,
             'merge_base': self._merge_base_data(relative, data),
             'size': size,
             'mtime_ns': mtime_ns,
             }
-        if resource.__name__ == 'brainbow.document':
-            values['document'] = resource.id
-        else:
-            values['attachment'] = resource.id
+        values['attachment'] = resource.id
         entry, = Entry.create([values])
         return entry
 
@@ -962,11 +940,11 @@ class Synchronizer:
     def _delete_entry(self, entry):
         entry.__class__.delete([entry])
 
-    def _set_tag_path(self, tag, directory):
+    def _set_category_path(self, category, directory):
         relative = self._relative(directory)
-        if tag.file_sync_path != relative:
+        if category.file_sync_path != relative:
             with Transaction().set_context(file_sync_skip=True):
-                tag.__class__.write([tag], {'file_sync_path': relative})
+                category.__class__.write([category], {'file_sync_path': relative})
 
     def _entry_path(self, entry):
         path = self._validated_path(os.path.join(
@@ -1030,14 +1008,14 @@ class Synchronizer:
             raise
         return os.stat(path).st_mtime_ns
 
-    def _merge_directories(self, source, target, tag):
+    def _merge_directories(self, source, target, category):
         for name in sorted(os.listdir(source)):
             source_path = os.path.join(source, name)
             target_path = os.path.join(target, name)
             if not os.path.exists(target_path):
                 os.replace(source_path, target_path)
             elif os.path.isdir(source_path) and os.path.isdir(target_path):
-                self._merge_directories(source_path, target_path, tag)
+                self._merge_directories(source_path, target_path, category)
             elif os.path.isfile(source_path) and os.path.isfile(target_path):
                 source_state = self._read_file(source_path)
                 target_state = self._read_file(target_path)
@@ -1050,18 +1028,18 @@ class Synchronizer:
                         target_path, 'filesystem-directory')
                     os.replace(target_path, conflict)
                     os.replace(source_path, target_path)
-                    self._notify_conflict(tag, self._relative(target_path))
+                    self._notify_conflict(category, self._relative(target_path))
                 else:
                     conflict = self._conflict_path(
                         target_path, 'erp-directory')
                     os.replace(source_path, conflict)
-                    self._notify_conflict(tag, self._relative(target_path))
+                    self._notify_conflict(category, self._relative(target_path))
             else:
                 conflict = self._conflict_path(
                     target_path, 'filesystem-directory')
                 os.replace(target_path, conflict)
                 os.replace(source_path, target_path)
-                self._notify_conflict(tag, self._relative(target_path))
+                self._notify_conflict(category, self._relative(target_path))
         try:
             os.rmdir(source)
         except OSError:
@@ -1079,10 +1057,10 @@ class Synchronizer:
             counter += 1
         return candidate
 
-    def _notify_conflict(self, tag, relative):
+    def _notify_conflict(self, category, relative):
         logger.warning("filesystem synchronization conflict: %s", relative)
         Notification = Pool().get('res.notification')
-        read_write, read_only = tag.access_users()
+        read_write, read_only = category.access_users()
         users = sorted(read_write | read_only, key=lambda user: user.id)
         values = []
         for user in users:
@@ -1094,8 +1072,8 @@ class Synchronizer:
                     'label': gettext('file_sync.msg_conflict_label'),
                     'description': gettext(
                         'file_sync.msg_conflict_description', path=relative),
-                    'model': 'brainbow.tag',
-                    'records': json.dumps([tag.id]),
+                    'model': 'office.category',
+                    'records': json.dumps([category.id]),
                     })
         if values:
             Notification.create(values)
@@ -1143,9 +1121,9 @@ class Synchronizer:
             .replace('%25', '%'))
 
     @staticmethod
-    def _parents(tag):
+    def _parents(category):
         parents = []
-        while tag.parent:
-            tag = tag.parent
-            parents.append(tag)
+        while category.parent:
+            category = category.parent
+            parents.append(category)
         return parents

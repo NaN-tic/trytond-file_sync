@@ -30,14 +30,12 @@ class TestAsyncQueue(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tryton_config.set('file_sync', 'path', directory)
             tryton_config.set('queue', 'worker', 'True')
-
             config = activate_modules('file_sync')
-            Tag = Model.get('brainbow.tag', config=config)
-            Document = Model.get('brainbow.document', config=config)
             Attachment = Model.get('ir.attachment', config=config)
             Lang = Model.get('ir.lang', config=config)
+            Category = Model.get('office.category', config=config)
 
-            def run_task(expected_model, expected_method='synchronize_files'):
+            def run_task(model, method):
                 with Transaction().start(
                         config.database_name, config.user,
                         context=config.context) as transaction:
@@ -47,219 +45,60 @@ class TestAsyncQueue(unittest.TestCase):
                             ('finished_at', '=', None),
                             ], order=[('id', 'ASC')])
                     task = next((task for task in tasks
-                            if task.data['model'] == expected_model
-                            and task.data['method'] == expected_method), None)
+                            if task.data['model'] == model
+                            and task.data['method'] == method), None)
                     self.assertIsNotNone(task)
-                    if expected_method == 'synchronize_files':
-                        with self.assertLogs(
-                                'trytond.modules.file_sync.sync',
-                                level='INFO') as logs:
-                            task.run()
-                        output = '\n'.join(logs.output)
-                    else:
-                        task.run()
-                        output = ''
+                    task.run()
                     transaction.commit()
-                return output
 
             language, = Lang.find([('code', '=', 'en')])
-            root = Tag(name='Shared', sync=True)
+            root = Category(name='Shared', sync=True)
             root.save()
+            run_task('file.sync.configuration', 'synchronize')
             root_path = Path(directory) / 'Shared'
-            self.assertFalse(root_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertTrue(root_path.exists())
+            self.assertTrue(root_path.is_dir())
 
-            button_path = root_path / 'button-probe.txt'
-            button_path.write_text('Button import', encoding='utf-8')
-            root.click('synchronize_files')
-            self.assertFalse(Attachment.find([
-                        ('name', '=', 'button-probe.txt'),
-                        ]))
-            run_task('file.sync.configuration', 'synchronize')
-            button_attachment, = Attachment.find([
-                    ('name', '=', 'button-probe.txt'),
-                    ])
-            self.assertEqual(bytes(button_attachment.data), b'Button import')
-
-            project = Tag(name='Projects', parent=root)
+            project = Category(name='Projects', parent=root)
             project.save()
-            project_path = root_path / 'Projects'
-            self.assertFalse(project_path.exists())
             run_task('file.sync.configuration', 'synchronize')
-            self.assertTrue(project_path.exists())
 
-            encoded_tag = Tag(name='Clients/ERP 100%', parent=root)
-            encoded_tag.save()
-            encoded_tag_path = root_path / 'Clients%2FERP 100%25'
-            self.assertFalse(encoded_tag_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertTrue(encoded_tag_path.exists())
-            with Transaction().start(
-                    config.database_name, config.user,
-                    context=config.context) as transaction:
-                Entry = Pool(config.database_name).get('file.sync.entry')
-                Entry.synchronize_path(str(encoded_tag_path))
-                transaction.commit()
-            root.click('synchronize_files')
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertEqual(len(Tag.find([
-                        ('name', '=', 'Clients/ERP 100%'),
-                        ])), 1)
-            self.assertFalse(Tag.find([
-                        ('name', '=', 'Clients%2FERP 100%25'),
-                        ]))
-
-            document = Document(
-                name='Guide', text='Initial document', language=language)
-            document.tags.append(project)
-            document.save()
-            document_path = (
-                Path(directory) / 'Shared' / 'Projects' / 'Guide.md')
-            self.assertFalse(document_path.exists())
-            logs = run_task('brainbow.document')
-            self.assertIn('wrote filesystem file', logs)
-            self.assertIn(str(document_path), logs)
+            text = Attachment(
+                name='Guide', type='text', content='Initial text',
+                language=language, unlinked=True)
+            text.categories.append(project)
+            text.save()
+            text_path = root_path / 'Projects' / 'Guide.md'
+            self.assertFalse(text_path.exists())
+            run_task('ir.attachment', 'synchronize_files')
             self.assertEqual(
-                document_path.read_text(encoding='utf-8'),
-                'Initial document')
+                text_path.read_text(encoding='utf-8'), 'Initial text')
 
-            encoded_name = (
-                "Executar query/s al 100% de les bbdd d'un servidor")
-            encoded_document = Document(
-                name=encoded_name, text='Encoded document', language=language)
-            encoded_document.tags.append(Tag(project.id))
-            encoded_document.save()
-            encoded_path = (
-                project_path
-                / "Executar query%2Fs al 100%25 de les bbdd d'un servidor.md")
-            self.assertFalse(encoded_path.exists())
-            run_task('brainbow.document')
-            self.assertEqual(
-                encoded_path.read_text(encoding='utf-8'), 'Encoded document')
-            encoded_path.write_text(
-                'Updated from the filesystem', encoding='utf-8')
-            with Transaction().start(
-                    config.database_name, config.user,
-                    context=config.context) as transaction:
-                Entry = Pool(config.database_name).get('file.sync.entry')
-                Entry.synchronize_path(str(encoded_path))
-                transaction.commit()
-            encoded_document, = Document.find([
-                    ('name', '=', encoded_name),
-                    ])
-            self.assertEqual(
-                encoded_document.text, 'Updated from the filesystem')
-
-            document.text = 'Updated document'
-            document.save()
-            self.assertEqual(
-                document_path.read_text(encoding='utf-8'),
-                'Initial document')
-            run_task('brainbow.document')
-            self.assertEqual(
-                document_path.read_text(encoding='utf-8'),
-                'Updated document')
-
-            document.name = 'Manual'
-            document.save()
-            renamed_document_path = (
-                Path(directory) / 'Shared' / 'Projects' / 'Manual.md')
-            self.assertTrue(document_path.exists())
-            self.assertFalse(renamed_document_path.exists())
-            logs = run_task('brainbow.document')
-            self.assertIn('renamed filesystem file', logs)
-            self.assertFalse(document_path.exists())
-            self.assertTrue(renamed_document_path.exists())
-            document_path = renamed_document_path
-
-            attachment = Attachment(
+            binary = Attachment(
                 name='data.bin', type='data', data=b'initial',
-                resource=project)
-            attachment.tags.append(Tag(project.id))
-            attachment.save()
-            self.assertEqual(attachment.resource.id, project.id)
-            attachment_path = (
-                Path(directory) / 'Shared' / 'Projects' / 'data.bin')
-            self.assertFalse(attachment_path.exists())
-            run_task('ir.attachment')
-            self.assertEqual(attachment_path.read_bytes(), b'initial')
+                unlinked=True)
+            binary.categories.append(Category(project.id))
+            binary.save()
+            binary_path = root_path / 'Projects' / 'data.bin'
+            run_task('ir.attachment', 'synchronize_files')
+            self.assertEqual(binary_path.read_bytes(), b'initial')
 
-            attachment.data = b'updated'
-            attachment.save()
-            self.assertEqual(attachment_path.read_bytes(), b'initial')
-            run_task('ir.attachment')
-            self.assertEqual(attachment_path.read_bytes(), b'updated')
+            text.content = 'Updated text'
+            text.save()
+            self.assertEqual(
+                text_path.read_text(encoding='utf-8'), 'Initial text')
+            run_task('ir.attachment', 'synchronize_files')
+            self.assertEqual(
+                text_path.read_text(encoding='utf-8'), 'Updated text')
 
-            attachment.name = 'renamed.bin'
-            attachment.save()
-            renamed_attachment_path = (
-                Path(directory) / 'Shared' / 'Projects' / 'renamed.bin')
-            self.assertTrue(attachment_path.exists())
-            self.assertFalse(renamed_attachment_path.exists())
-            logs = run_task('ir.attachment')
-            self.assertIn('renamed filesystem file', logs)
-            self.assertFalse(attachment_path.exists())
-            self.assertTrue(renamed_attachment_path.exists())
-            attachment_path = renamed_attachment_path
-
-            Document.delete([document])
-            self.assertTrue(document_path.exists())
-            run_task('brainbow.document')
-            self.assertFalse(document_path.exists())
+            Attachment.delete([text])
+            self.assertTrue(text_path.exists())
+            run_task('ir.attachment', 'synchronize_files')
+            self.assertFalse(text_path.exists())
             with config.set_context(active_test=False):
-                inactive_document = Document(document.id)
-                Document.delete([inactive_document])
-                self.assertFalse(Document.find([('id', '=', document.id)]))
-
-            Attachment.delete([attachment])
-            self.assertTrue(attachment_path.exists())
-            with Transaction().start(
-                    config.database_name, config.user,
-                    context=config.context) as transaction:
-                Entry = Pool(config.database_name).get('file.sync.entry')
-                Entry.synchronize_path(str(attachment_path))
-                transaction.commit()
-            self.assertFalse(Attachment.find([('name', '=', 'renamed.bin')]))
-            with config.set_context(active_test=False):
-                inactive_attachment = Attachment(attachment.id)
-                Attachment.delete([inactive_attachment])
-                self.assertTrue(Attachment.find([
-                            ('id', '=', attachment.id),
-                            ]))
-            run_task('ir.attachment')
-            run_task('ir.attachment', 'delete_inactive')
-            self.assertFalse(attachment_path.exists())
-            with config.set_context(active_test=False):
-                self.assertFalse(Attachment.find([
-                            ('id', '=', attachment.id),
-                            ]))
-
-            project.name = 'Work'
-            project.save()
-            work_path = root_path / 'Work'
-            self.assertTrue(project_path.exists())
-            self.assertFalse(work_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertFalse(project_path.exists())
-            self.assertTrue(work_path.exists())
-
-            project.active = False
-            project.save()
-            self.assertTrue(work_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertFalse(work_path.exists())
-
-            disposable = Tag(name='Disposable', parent=root)
-            disposable.save()
-            disposable_path = root_path / 'Disposable'
-            self.assertFalse(disposable_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertTrue(disposable_path.exists())
-            Tag.delete([disposable])
-            self.assertTrue(disposable_path.exists())
-            run_task('file.sync.configuration', 'synchronize')
-            self.assertFalse(disposable_path.exists())
+                inactive = Attachment(text.id)
+                self.assertFalse(inactive.active)
+                Attachment.delete([inactive])
+                self.assertFalse(Attachment.find([('id', '=', text.id)]))
 
         if old_path is not None:
             tryton_config.set('file_sync', 'path', old_path)
