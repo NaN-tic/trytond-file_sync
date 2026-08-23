@@ -8,7 +8,7 @@ from setuptools import setup
 
 MODULE = 'file_sync'
 MODULE_PREFIX = {
-    'brainbow': 'nantic',
+    'office': 'nantic',
     }
 
 
@@ -47,7 +47,7 @@ for dependency in info.get('depends', []):
 setup(
     name='nantic_file_sync',
     version=version,
-    description='Bidirectional Brainbow filesystem synchronization',
+    description='Bidirectional Office filesystem synchronization',
     long_description=read('README'),
     author='NaN-tic',
     author_email='info@nan-tic.com',

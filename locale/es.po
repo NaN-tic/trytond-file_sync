@@ -2,41 +2,9 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=utf-8\n"
 
-msgctxt "field:brainbow.document,replaced_by:"
-msgid "Replaced By"
-msgstr "Reemplazado por"
-
-msgctxt "field:brainbow.tag,attachments:"
-msgid "Attachments"
-msgstr "Adjuntos"
-
-msgctxt "field:brainbow.tag,read_only_groups:"
-msgid "Read-only Groups"
-msgstr "Grupos de solo lectura"
-
-msgctxt "field:brainbow.tag,read_only_users:"
-msgid "Read-only Users"
-msgstr "Usuarios de solo lectura"
-
-msgctxt "field:brainbow.tag,read_write_groups:"
-msgid "Read-write Groups"
-msgstr "Grupos de lectura y escritura"
-
-msgctxt "field:brainbow.tag,read_write_users:"
-msgid "Read-write Users"
-msgstr "Usuarios de lectura y escritura"
-
-msgctxt "field:brainbow.tag,sync:"
+msgctxt "field:office.category,sync:"
 msgid "Synchronize"
 msgstr "Sincronizar"
-
-msgctxt "field:ir.attachment,replaced_by:"
-msgid "Replaced By"
-msgstr "Reemplazado por"
-
-msgctxt "field:ir.attachment,tags:"
-msgid "Tags"
-msgstr "Etiquetas"
 
 msgctxt "model:ir.message,text:msg_conflict_label"
 msgid "File synchronization conflict"

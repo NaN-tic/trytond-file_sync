@@ -1,17 +1,18 @@
 File Sync
 =========
 
-The module synchronizes Brainbow tag trees with a filesystem directory.
+The module synchronizes Office category trees with a filesystem directory.
 Configure the base directory in the Tryton server configuration::
 
     [file_sync]
     path = /srv/tryton/files
 
-Root tags marked ``Synchronize`` become directories below this path.
-Brainbow documents are UTF-8 Markdown files and tagged attachments are binary
+Root categories marked ``Synchronize`` become directories below this path.
+Office text attachments are UTF-8 Markdown files and categorized attachments
+are binary
 files.  Synchronization metadata uses SHA-256 digests to detect independent
 changes and preserve both versions when a conflict occurs.
-The characters ``%``, ``/`` and ``\\`` in ERP tag or resource names are
+The characters ``%``, ``/`` and ``\\`` in ERP category or resource names are
 reversibly encoded as ``%25``, ``%2F`` and ``%5C`` in filesystem names.
 
 When both sides modify a Markdown, plain-text or source-code file, the module
@@ -20,7 +21,7 @@ merge creates a new active ERP version and preserves both inputs as inactive
 versions linked to it.  Overlapping changes keep the normal conflict-file and
 notification behavior.
 
-All synchronization requested from Tryton, including tag changes and the
+All synchronization requested from Tryton, including category changes and the
 ``Synchronize Files`` button, is processed by Tryton's default queue.  Enable
 workers on every Tryton server that creates these tasks::
 

@@ -3,41 +3,30 @@
     <data>
         <record model="file.sync.configuration" id="configuration"/>
 
-        <record model="ir.ui.view" id="view_tag_form">
-            <field name="model">brainbow.tag</field>
-            <field name="inherit" ref="brainbow.view_tag_form"/>
-            <field name="name">tag_form</field>
+        <record model="ir.ui.view" id="view_category_form">
+            <field name="model">office.category</field>
+            <field name="inherit" ref="office.view_category_form"/>
+            <field name="name">category_form</field>
         </record>
-        <record model="ir.ui.view" id="view_tag_tree">
-            <field name="model">brainbow.tag</field>
-            <field name="inherit" ref="brainbow.view_tag_tree"/>
-            <field name="name">tag_tree</field>
+        <record model="ir.ui.view" id="view_category_tree">
+            <field name="model">office.category</field>
+            <field name="inherit" ref="office.view_category_tree"/>
+            <field name="name">category_tree</field>
         </record>
-        <record model="ir.ui.view" id="view_document_form">
-            <field name="model">brainbow.document</field>
-            <field name="inherit" ref="brainbow.view_document_form"/>
-            <field name="name">document_form</field>
-        </record>
-        <record model="ir.ui.view" id="view_attachment_form">
-            <field name="model">ir.attachment</field>
-            <field name="inherit" ref="ir.attachment_view_form"/>
-            <field name="name">attachment_form</field>
-        </record>
-
         <record model="ir.model.button" id="button_synchronize_files">
             <field name="name">synchronize_files</field>
             <field name="string">Synchronize Files</field>
-            <field name="model">brainbow.tag</field>
+            <field name="model">office.category</field>
         </record>
         <record model="ir.model.button-res.group"
                 id="button_synchronize_files_group_admin">
             <field name="button" ref="button_synchronize_files"/>
-            <field name="group" ref="brainbow.group_admin"/>
+            <field name="group" ref="office.group_admin"/>
         </record>
 
         <record model="ir.model.access" id="access_sync_entry_admin">
             <field name="model">file.sync.entry</field>
-            <field name="group" ref="brainbow.group_admin"/>
+            <field name="group" ref="office.group_admin"/>
             <field name="perm_read" eval="True"/>
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
