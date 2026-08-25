@@ -36,10 +36,10 @@ class TestAsyncQueue(unittest.TestCase):
             Category = Model.get('office.category', config=config)
 
             def run_task(model, method):
+                Queue = Pool(config.database_name).get('ir.queue')
                 with Transaction().start(
                         config.database_name, config.user,
                         context=config.context) as transaction:
-                    Queue = Pool(config.database_name).get('ir.queue')
                     tasks = Queue.search([
                             ('name', '=', 'default'),
                             ('finished_at', '=', None),
@@ -48,6 +48,14 @@ class TestAsyncQueue(unittest.TestCase):
                             if task.data['model'] == model
                             and task.data['method'] == method), None)
                     self.assertIsNotNone(task)
+                    task_id = task.id
+                    transaction.commit()
+                with Transaction().start(
+                        config.database_name, config.user,
+                        context=config.context,
+                        _lock_records={Queue._table: [task_id]},
+                        ) as transaction:
+                    task = Queue(task_id)
                     task.run()
                     transaction.commit()
 

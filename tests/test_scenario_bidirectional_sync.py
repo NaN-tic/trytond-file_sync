@@ -44,11 +44,11 @@ class TestBidirectionalSync(unittest.TestCase):
 
             def run_sync_tasks():
                 count = 0
+                Queue = Pool(config.database_name).get('ir.queue')
                 while True:
                     with Transaction().start(
                             config.database_name, config.user,
                             context=config.context) as transaction:
-                        Queue = Pool(config.database_name).get('ir.queue')
                         tasks = Queue.search([
                                 ('name', '=', 'default'),
                                 ('finished_at', '=', None),
@@ -61,8 +61,15 @@ class TestBidirectionalSync(unittest.TestCase):
                                     'delete_inactive', 'synchronize',
                                     'synchronize_files'}), None)
                         if not task:
-                            transaction.commit()
                             return count
+                        task_id = task.id
+                        transaction.commit()
+                    with Transaction().start(
+                            config.database_name, config.user,
+                            context=config.context,
+                            _lock_records={Queue._table: [task_id]},
+                            ) as transaction:
+                        task = Queue(task_id)
                         task.run()
                         transaction.commit()
                         count += 1
