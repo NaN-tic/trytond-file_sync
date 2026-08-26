@@ -6,9 +6,21 @@ msgctxt "field:office.category,sync:"
 msgid "Synchronize"
 msgstr "Sincronizar"
 
+msgctxt "field:file.sync.configuration,filesystem_id:"
+msgid "Filesystem Identifier"
+msgstr "Identificador del sistema de archivos"
+
 msgctxt "model:ir.message,text:msg_conflict_label"
 msgid "File synchronization conflict"
 msgstr "Conflicto de sincronización de archivos"
+
+msgctxt "model:ir.message,text:msg_marker_invalid"
+msgid "The synchronization marker \"%(path)s\" is invalid."
+msgstr "El marcador de sincronización \"%(path)s\" no es válido."
+
+msgctxt "model:ir.message,text:msg_marker_mismatch"
+msgid "The synchronization directory \"%(path)s\" belongs to another Tryton database."
+msgstr "El directorio de sincronización \"%(path)s\" pertenece a otra base de datos de Tryton."
 
 msgctxt "model:ir.message,text:msg_path_required"
 msgid "The [file_sync] path setting is required."

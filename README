@@ -12,6 +12,15 @@ Office text attachments are UTF-8 Markdown files and categorized attachments
 are binary
 files.  Synchronization metadata uses SHA-256 digests to detect independent
 changes and preserve both versions when a conflict occurs.
+
+The first complete synchronization creates a ``.tryton-file-sync`` marker in
+the configured base directory.  Until this marker exists, missing filesystem
+paths are initialized from Tryton and are not treated as deletions.  Once the
+marker exists, a complete synchronization reconciles filesystem paths that
+were deleted while the watcher was stopped.  The marker identifies the Tryton
+database that owns the directory; copying a marker from another database makes
+synchronization stop without changing either side.
+
 The characters ``%``, ``/`` and ``\\`` in ERP category or resource names are
 reversibly encoded as ``%25``, ``%2F`` and ``%5C`` in filesystem names.
 
