@@ -1,3 +1,7 @@
+import uuid
+
+from sql import For
+
 from trytond.model import (
     DeactivableMixin, ModelSingleton, ModelSQL, ModelView, Unique, fields)
 from trytond.pool import Pool, PoolMeta
@@ -188,7 +192,7 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
     "Last synchronized state for one resource in one category."
     __name__ = 'file.sync.entry'
 
-    _file_sync_ignore_patterns = {'.file-sync-*'}
+    _file_sync_ignore_patterns = {'.file-sync-*', '.tryton-file-sync'}
 
     category = fields.Many2One(
         'office.category', "Category", required=True, ondelete='CASCADE')
@@ -258,6 +262,35 @@ class SyncEntry(DeactivableMixin, ModelSQL, ModelView):
 class Configuration(ModelSingleton, ModelSQL, ModelView):
     "File Sync Configuration"
     __name__ = 'file.sync.configuration'
+
+    filesystem_id = fields.Char("Filesystem Identifier", readonly=True)
+
+    @staticmethod
+    def default_filesystem_id():
+        return uuid.uuid4().hex
+
+    @classmethod
+    def lock_filesystem(cls):
+        with without_check_access():
+            configurations = cls.search([], limit=1)
+            if not configurations:
+                configurations = cls.create([{}])
+            configuration, = configurations
+            transaction = Transaction()
+            if transaction.database.has_select_for():
+                table = cls.__table__()
+                cursor = transaction.connection.cursor()
+                cursor.execute(*table.select(
+                        table.id,
+                        where=table.id == configuration.id,
+                        for_=For('UPDATE')))
+            filesystem_id = configuration.filesystem_id
+            if not filesystem_id:
+                filesystem_id = cls.default_filesystem_id()
+                cls.write([configuration], {
+                        'filesystem_id': filesystem_id,
+                        })
+        return filesystem_id
 
     @classmethod
     def queue_synchronize(

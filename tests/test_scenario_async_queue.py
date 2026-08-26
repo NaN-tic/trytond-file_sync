@@ -1,9 +1,12 @@
+import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from proteus import Model
 import trytond.config as tryton_config
+from trytond.exceptions import UserError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import drop_db
 from trytond.tests.tools import activate_modules
@@ -56,11 +59,27 @@ class TestAsyncQueue(unittest.TestCase):
             root.save()
             run_task('file.sync.configuration', 'synchronize')
             root_path = Path(directory) / 'Shared'
+            marker_path = Path(directory) / '.tryton-file-sync'
             self.assertTrue(root_path.is_dir())
+            self.assertTrue(marker_path.is_file())
+
+            marker_data = marker_path.read_text(encoding='utf-8')
+            invalid_marker = json.loads(marker_data)
+            invalid_marker['filesystem_id'] = 'another-database'
+            marker_path.write_text(
+                json.dumps(invalid_marker), encoding='utf-8')
+            with self.assertRaises(UserError):
+                with Transaction().start(
+                        config.database_name, config.user,
+                        context=config.context):
+                    Entry = Pool(config.database_name).get('file.sync.entry')
+                    Entry.synchronize()
+            marker_path.write_text(marker_data, encoding='utf-8')
 
             project = Category(name='Projects', parent=root)
             project.save()
             run_task('file.sync.configuration', 'synchronize')
+            project_path = root_path / 'Projects'
 
             text = Attachment(
                 name='Guide', type='text', content='Initial text',
@@ -82,6 +101,48 @@ class TestAsyncQueue(unittest.TestCase):
             run_task('ir.attachment', 'synchronize_files')
             self.assertEqual(binary_path.read_bytes(), b'initial')
 
+            directory_binary = Attachment(
+                name='directory.bin', type='data', data=b'directory',
+                unlinked=True)
+            directory_binary.categories.append(Category(project.id))
+            directory_binary.save()
+            directory_binary_path = project_path / 'directory.bin'
+            run_task('ir.attachment', 'synchronize_files')
+            self.assertEqual(
+                directory_binary_path.read_bytes(), b'directory')
+
+            marker_path.unlink()
+            shutil.rmtree(project_path)
+            root.click('synchronize_files')
+            self.assertFalse(project_path.exists())
+            run_task('file.sync.configuration', 'synchronize')
+            self.assertTrue(marker_path.is_file())
+            self.assertTrue(project_path.is_dir())
+            self.assertEqual(
+                text_path.read_text(encoding='utf-8'), 'Initial text')
+            self.assertEqual(binary_path.read_bytes(), b'initial')
+            self.assertEqual(
+                directory_binary_path.read_bytes(), b'directory')
+            project.reload()
+            text.reload()
+            binary.reload()
+            directory_binary.reload()
+            self.assertTrue(project.active)
+            self.assertTrue(text.active)
+            self.assertTrue(binary.active)
+            self.assertTrue(directory_binary.active)
+
+            binary_path.unlink()
+            root.click('synchronize_files')
+            run_task('file.sync.configuration', 'synchronize')
+            project.reload()
+            directory_binary.reload()
+            self.assertTrue(project.active)
+            self.assertTrue(directory_binary.active)
+            with config.set_context(active_test=False):
+                binary = Attachment(binary.id)
+                self.assertFalse(binary.active)
+
             text.content = 'Updated text'
             text.save()
             self.assertEqual(
@@ -99,6 +160,15 @@ class TestAsyncQueue(unittest.TestCase):
                 self.assertFalse(inactive.active)
                 Attachment.delete([inactive])
                 self.assertFalse(Attachment.find([('id', '=', text.id)]))
+
+            shutil.rmtree(project_path)
+            root.click('synchronize_files')
+            run_task('file.sync.configuration', 'synchronize')
+            with config.set_context(active_test=False):
+                project = Category(project.id)
+                directory_binary = Attachment(directory_binary.id)
+                self.assertFalse(project.active)
+                self.assertFalse(directory_binary.active)
 
         if old_path is not None:
             tryton_config.set('file_sync', 'path', old_path)

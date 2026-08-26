@@ -10,6 +10,10 @@ msgctxt "field:office.category,sync:"
 msgid "Synchronize"
 msgstr "Sincronitza"
 
+msgctxt "field:file.sync.configuration,filesystem_id:"
+msgid "Filesystem Identifier"
+msgstr "Identificador del sistema de fitxers"
+
 msgctxt "model:ir.model.button,string:button_synchronize_files"
 msgid "Synchronize Files"
 msgstr "Sincronitza els fitxers"
@@ -29,6 +33,14 @@ msgstr "\"%(name)s\" no és un nom de fitxer o directori segur."
 msgctxt "model:ir.message,text:msg_markdown_utf8"
 msgid "The Markdown file \"%(path)s\" is not valid UTF-8."
 msgstr "El fitxer Markdown \"%(path)s\" no és UTF-8 vàlid."
+
+msgctxt "model:ir.message,text:msg_marker_invalid"
+msgid "The synchronization marker \"%(path)s\" is invalid."
+msgstr "El marcador de sincronització \"%(path)s\" no és vàlid."
+
+msgctxt "model:ir.message,text:msg_marker_mismatch"
+msgid "The synchronization directory \"%(path)s\" belongs to another Tryton database."
+msgstr "El directori de sincronització \"%(path)s\" pertany a una altra base de dades de Tryton."
 
 msgctxt "model:ir.message,text:msg_path_required"
 msgid "The [file_sync] path setting is required."

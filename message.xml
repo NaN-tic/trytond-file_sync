@@ -19,6 +19,12 @@
         <record model="ir.message" id="msg_markdown_utf8">
             <field name="text">The Markdown file "%(path)s" is not valid UTF-8.</field>
         </record>
+        <record model="ir.message" id="msg_marker_invalid">
+            <field name="text">The synchronization marker "%(path)s" is invalid.</field>
+        </record>
+        <record model="ir.message" id="msg_marker_mismatch">
+            <field name="text">The synchronization directory "%(path)s" belongs to another Tryton database.</field>
+        </record>
         <record model="ir.message" id="msg_conflict_label">
             <field name="text">File synchronization conflict</field>
         </record>

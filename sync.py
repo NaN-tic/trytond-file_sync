@@ -35,6 +35,9 @@ TEXT_FILENAMES = {
 
 logger = logging.getLogger(__name__)
 
+MARKER_FILENAME = '.tryton-file-sync'
+MARKER_VERSION = 1
+
 
 class FileSystemDataManager:
 
@@ -125,8 +128,10 @@ class Synchronizer:
     def synchronize(self, roots=None):
         if not self.base_path:
             return
+        filesystem_id = self._lock_filesystem()
+        initialized = self._filesystem_initialized(filesystem_id)
         Category = Pool().get('office.category')
-        if roots is None:
+        if roots is None or not initialized:
             roots = Category.search([
                     ('parent', '=', None),
                     ('sync', '=', True),
@@ -137,11 +142,14 @@ class Synchronizer:
             key=lambda root: root.id)
         os.makedirs(self.base_path, exist_ok=True)
         for root in roots:
-            self._synchronize_root(root)
+            self._synchronize_root(root, missing_is_delete=initialized)
+        if roots and not initialized:
+            self._write_marker(filesystem_id)
 
     def synchronize_records(self, records, deletion=False):
         if not self.base_path:
             return
+        initialized = self._filesystem_initialized(self._lock_filesystem())
         for resource in records:
             entries = self._entries_for_resource(resource)
             desired_categories = set()
@@ -155,11 +163,13 @@ class Synchronizer:
                     self._remove_entry_from_erp(entry)
             for category in sorted(
                     desired_categories, key=lambda category: category.id):
-                self._sync_db_resource(category, resource, missing_is_delete=False)
+                self._sync_db_resource(
+                    category, resource, missing_is_delete=initialized)
 
     def move_categories(self, old_paths):
         if not self.base_path:
             return
+        self._filesystem_initialized(self._lock_filesystem())
         for category, old_relative in old_paths.items():
             root = category.synchronized_root()
             if not old_relative or not root:
@@ -187,6 +197,7 @@ class Synchronizer:
     def remove_category_directories(self, paths):
         if not self.base_path:
             return
+        self._filesystem_initialized(self._lock_filesystem())
         relative_paths = sorted(
             {path for path in paths if path},
             key=lambda path: len(Path(path).parts))
@@ -213,6 +224,7 @@ class Synchronizer:
         if path == self.base_path:
             self.synchronize()
             return
+        initialized = self._filesystem_initialized(self._lock_filesystem())
         root = self._root_for_path(path)
         if not root:
             return
@@ -221,13 +233,16 @@ class Synchronizer:
             if category:
                 seen_categories = set()
                 self._walk_directory(root, category, path, seen_categories)
-                self._reconcile_category(root, category, missing_is_delete=True)
+                self._reconcile_category(
+                    root, category, missing_is_delete=initialized)
         elif os.path.isfile(path) and not os.path.islink(path):
             category = self._category_for_directory(root, os.path.dirname(path),
                 create=True)
             if category:
                 self._sync_fs_file(category, path)
         elif not os.path.exists(path):
+            if not initialized:
+                return
             relative = self._relative(path)
             Entry = Pool().get('file.sync.entry')
             entries = Entry.search([('path', '=', relative)])
@@ -239,11 +254,11 @@ class Synchronizer:
                 categories = Category.search([('file_sync_path', '=', relative)])
                 for category in categories:
                     if category == root:
-                        self._synchronize_root(root)
+                        self._synchronize_root(root, missing_is_delete=True)
                     else:
                         self._deactivate_category_tree(category)
 
-    def _synchronize_root(self, root):
+    def _synchronize_root(self, root, missing_is_delete):
         root_directory = self._category_directory(root, root)
         os.makedirs(root_directory, exist_ok=True)
         self._set_category_path(root, root_directory)
@@ -270,16 +285,19 @@ class Synchronizer:
                 self._category_components(root, category)))
         for category in categories:
             directory = self._category_directory(root, category)
-            missing_is_delete = True
+            category_missing_is_delete = missing_is_delete
             if category.id not in seen_categories:
-                if category.file_sync_path and category != root:
+                if (missing_is_delete
+                        and category.file_sync_path
+                        and category != root):
                     self._deactivate_category_tree(category)
                     continue
                 os.makedirs(directory, exist_ok=True)
                 self._set_category_path(category, directory)
-                missing_is_delete = False
+                category_missing_is_delete = False
             self._reconcile_category(
-                root, category, missing_is_delete=missing_is_delete)
+                root, category,
+                missing_is_delete=category_missing_is_delete)
 
     def _walk_directory(self, root, category, directory, seen_categories):
         seen_categories.add(category.id)
@@ -945,6 +963,47 @@ class Synchronizer:
         if category.file_sync_path != relative:
             with Transaction().set_context(file_sync_skip=True):
                 category.__class__.write([category], {'file_sync_path': relative})
+
+    @staticmethod
+    def _lock_filesystem():
+        Configuration = Pool().get('file.sync.configuration')
+        return Configuration.lock_filesystem()
+
+    def _filesystem_initialized(self, filesystem_id):
+        marker_path = os.path.join(self.base_path, MARKER_FILENAME)
+        if not os.path.lexists(marker_path):
+            return False
+        marker_state = self._read_file(marker_path)
+        if not marker_state:
+            raise UserError(gettext(
+                    'file_sync.msg_marker_invalid', path=marker_path))
+        try:
+            marker = json.loads(marker_state[0].decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exception:
+            raise UserError(gettext(
+                    'file_sync.msg_marker_invalid',
+                    path=marker_path)) from exception
+        if (not isinstance(marker, dict)
+                or marker.get('version') != MARKER_VERSION
+                or not isinstance(marker.get('filesystem_id'), str)):
+            raise UserError(gettext(
+                    'file_sync.msg_marker_invalid', path=marker_path))
+        if marker['filesystem_id'] != filesystem_id:
+            raise UserError(gettext(
+                    'file_sync.msg_marker_mismatch', path=self.base_path))
+        return True
+
+    def _write_marker(self, filesystem_id):
+        marker = {
+            'filesystem_id': filesystem_id,
+            'initialized_at': datetime.datetime.now(
+                datetime.timezone.utc).isoformat(),
+            'version': MARKER_VERSION,
+            }
+        data = (json.dumps(marker, sort_keys=True, separators=(',', ':'))
+            + '\n').encode('utf-8')
+        self._write_file(
+            os.path.join(self.base_path, MARKER_FILENAME), data)
 
     def _entry_path(self, entry):
         path = self._validated_path(os.path.join(
