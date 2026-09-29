@@ -23,7 +23,8 @@ class Category(metaclass=PoolMeta):
             'invisible': Bool(Eval('parent')),
             },
         depends=['parent'])
-    file_sync_path = fields.Char("Synchronized Path", readonly=True)
+    file_sync_path = fields.Char(
+        "Synchronized Path", states={'editable': False})
 
     @classmethod
     def __setup__(cls):
